@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { FaGripVertical, FaTrash, FaCheck, FaWalking, FaBicycle, FaMotorcycle, FaBus, FaSubway, FaTrain, FaCar, FaTaxi, FaShip, FaPlane, FaTicketAlt, FaTimes } from 'react-icons/fa';
+import { FaGripVertical, FaTrash, FaCheck, FaWalking, FaBicycle, FaMotorcycle, FaBus, FaSubway, FaTrain, FaCar, FaTaxi, FaShip, FaPlane, FaTicketAlt, FaChevronRight } from 'react-icons/fa';
 
 // 예약 가능 여부 포함
 const TRANSPORT_OPTIONS = [
@@ -16,9 +16,77 @@ const TRANSPORT_OPTIONS = [
   { value: 'plane', icon: FaPlane, label: '비행기', color: '#ec4899', reservable: true, placeholder: '예약번호 (항공편명)' },
 ];
 
-const PlaceList = ({ places, onReorder, onToggleCheck, onDelete, onUpdateNote, onUpdateTransport, onUpdateReservation }) => {
-  const [expandedReservation, setExpandedReservation] = useState(null);
+// 스크롤 가능 여부 감지 훅
+const useScrollHint = () => {
+  const scrollRef = useRef(null);
+  const [showHint, setShowHint] = useState(false);
 
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const check = () => {
+      // 스크롤 가능하고, 아직 끝까지 안 갔으면 힌트 표시
+      setShowHint(el.scrollWidth > el.clientWidth && el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+    };
+
+    check();
+    el.addEventListener('scroll', check);
+    window.addEventListener('resize', check);
+    return () => {
+      el.removeEventListener('scroll', check);
+      window.removeEventListener('resize', check);
+    };
+  }, []);
+
+  return { scrollRef, showHint };
+};
+
+// 교통수단 버튼 행 컴포넌트
+const TransportRow = ({ place, index, currentTransport, isReservable, onUpdateTransport, onUpdateReservation }) => {
+  const { scrollRef, showHint } = useScrollHint();
+
+  return (
+    <div className="relative">
+      <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-thin" ref={scrollRef}>
+        {TRANSPORT_OPTIONS.map(({ value, icon: Icon, label, color, reservable }) => {
+          const isActive = currentTransport === value;
+          return (
+            <button
+              key={value}
+              onClick={() => {
+                onUpdateTransport(index, value);
+                if (!reservable) {
+                  if (place.reservation) onUpdateReservation(index, '');
+                }
+              }}
+              title={label}
+              className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-all border"
+              style={{
+                backgroundColor: isActive ? color + '18' : 'transparent',
+                borderColor: isActive ? color : '#e5e7eb',
+                color: isActive ? color : '#9ca3af',
+              }}
+            >
+              <Icon size={14} />
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 스크롤 힌트 - 더 많은 옵션이 있음을 표시 */}
+      {showHint && (
+        <div className="absolute right-0 top-0 h-8 flex items-center pl-4 pointer-events-none"
+          style={{ background: 'linear-gradient(to right, transparent, white 40%)' }}
+        >
+          <FaChevronRight size={10} className="text-gray-400 animate-pulse" />
+        </div>
+      )}
+    </div>
+  );
+};
+
+const PlaceList = ({ places, onReorder, onToggleCheck, onDelete, onUpdateNote, onUpdateTransport, onUpdateReservation }) => {
   const handleDragEnd = (result) => {
     if (!result.destination) return;
 
@@ -88,71 +156,26 @@ const PlaceList = ({ places, onReorder, onToggleCheck, onDelete, onUpdateNote, o
                           </h3>
                           <p className="text-sm text-gray-500 truncate">{place.address}</p>
 
-                          {/* 이동수단 선택 (2번째 장소부터 표시) - 아이콘 전용 + 가로 스크롤 */}
+                          {/* 이동수단 선택 (2번째 장소부터 표시) */}
                           {index > 0 && (
                             <div className="mt-2">
-                              <div className="flex items-center gap-1.5">
-                                {/* 교통수단 아이콘 스크롤 영역 */}
-                                <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-thin min-w-0 flex-1">
-                                  {TRANSPORT_OPTIONS.map(({ value, icon: Icon, label, color, reservable }) => {
-                                    const isActive = currentTransport === value;
-                                    return (
-                                      <button
-                                        key={value}
-                                        onClick={() => {
-                                          onUpdateTransport(index, value);
-                                          // 예약 불가 교통수단 선택 시 예약정보 초기화 & 패널 닫기
-                                          if (!reservable) {
-                                            if (place.reservation) onUpdateReservation(index, '');
-                                            if (expandedReservation === index) setExpandedReservation(null);
-                                          }
-                                        }}
-                                        title={label}
-                                        className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-all border"
-                                        style={{
-                                          backgroundColor: isActive ? color + '18' : 'transparent',
-                                          borderColor: isActive ? color : '#e5e7eb',
-                                          color: isActive ? color : '#9ca3af',
-                                        }}
-                                      >
-                                        <Icon size={14} />
-                                      </button>
-                                    );
-                                  })}
-                                </div>
+                              <TransportRow
+                                place={place}
+                                index={index}
+                                currentTransport={currentTransport}
+                                isReservable={isReservable}
+                                onUpdateTransport={onUpdateTransport}
+                                onUpdateReservation={onUpdateReservation}
+                              />
 
-                                {/* 예약 가능한 교통수단일 때 예약 버튼 (스크롤 밖 고정) */}
-                                {isReservable && (
-                                  <button
-                                    onClick={() => setExpandedReservation(expandedReservation === index ? null : index)}
-                                    title="예약정보 입력"
-                                    className={`flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-all border ${
-                                      place.reservation
-                                        ? 'bg-amber-50 border-amber-400 text-amber-500'
-                                        : expandedReservation === index
-                                          ? 'bg-gray-100 border-gray-400 text-gray-600'
-                                          : 'border-dashed border-gray-300 text-gray-400 hover:border-gray-400 hover:text-gray-500'
-                                    }`}
-                                  >
-                                    <FaTicketAlt size={12} />
-                                  </button>
-                                )}
-                              </div>
-
-                              {/* 예약정보 입력 패널 */}
-                              {isReservable && expandedReservation === index && (
+                              {/* 예약정보 입력 - 예약 가능 교통수단이면 바로 표시 */}
+                              {isReservable && (
                                 <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
                                   <div className="flex items-center gap-2 mb-1.5">
                                     <FaTicketAlt size={11} className="text-amber-500" />
                                     <span className="text-xs font-medium text-amber-700">
                                       {transportOpt.label} 예약정보
                                     </span>
-                                    <button
-                                      onClick={() => setExpandedReservation(null)}
-                                      className="ml-auto text-gray-400 hover:text-gray-600"
-                                    >
-                                      <FaTimes size={10} />
-                                    </button>
                                   </div>
                                   <input
                                     type="text"
@@ -167,17 +190,6 @@ const PlaceList = ({ places, onReorder, onToggleCheck, onDelete, onUpdateNote, o
                                       <span>예약번호 저장됨</span>
                                     </div>
                                   )}
-                                </div>
-                              )}
-
-                              {/* 예약정보 미니 뱃지 (패널 닫혀있을 때, 예약번호 있으면 표시) */}
-                              {isReservable && expandedReservation !== index && place.reservation && (
-                                <div
-                                  className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700 cursor-pointer hover:bg-amber-100 transition-colors"
-                                  onClick={() => setExpandedReservation(index)}
-                                >
-                                  <FaTicketAlt size={9} />
-                                  <span className="font-mono">{place.reservation}</span>
                                 </div>
                               )}
                             </div>
