@@ -1,11 +1,17 @@
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { FaGripVertical, FaTrash, FaCheck, FaWalking, FaBus, FaCar, FaTaxi } from 'react-icons/fa';
+import { FaGripVertical, FaTrash, FaCheck, FaWalking, FaBicycle, FaMotorcycle, FaBus, FaSubway, FaTrain, FaCar, FaTaxi, FaShip, FaPlane } from 'react-icons/fa';
 
 const TRANSPORT_OPTIONS = [
   { value: 'walk', icon: FaWalking, label: '도보', color: '#10b981' },
-  { value: 'transit', icon: FaBus, label: '대중교통', color: '#3b82f6' },
+  { value: 'bicycle', icon: FaBicycle, label: '자전거', color: '#34d399' },
+  { value: 'motorcycle', icon: FaMotorcycle, label: '바이크', color: '#a855f7' },
+  { value: 'bus', icon: FaBus, label: '버스', color: '#3b82f6' },
+  { value: 'subway', icon: FaSubway, label: '지하철', color: '#6366f1' },
+  { value: 'train', icon: FaTrain, label: '기차', color: '#8b5cf6' },
   { value: 'car', icon: FaCar, label: '자차', color: '#f97316' },
   { value: 'taxi', icon: FaTaxi, label: '택시', color: '#eab308' },
+  { value: 'ship', icon: FaShip, label: '배', color: '#06b6d4' },
+  { value: 'plane', icon: FaPlane, label: '비행기', color: '#ec4899' },
 ];
 
 const PlaceList = ({ places, onReorder, onToggleCheck, onDelete, onUpdateNote, onUpdateTransport }) => {
@@ -75,7 +81,7 @@ const PlaceList = ({ places, onReorder, onToggleCheck, onDelete, onUpdateNote, o
                         {index > 0 && (
                           <div className="flex gap-1 mt-2">
                             {TRANSPORT_OPTIONS.map(({ value, icon: Icon, label, color }) => {
-                              const isActive = (place.transport || 'transit') === value;
+                              const isActive = (place.transport || 'bus') === value;
                               return (
                                 <button
                                   key={value}

@@ -28,8 +28,8 @@ const placeSchema = new mongoose.Schema({
   },
   transport: {
     type: String,
-    enum: ['walk', 'transit', 'car', 'taxi'],
-    default: 'transit'
+    enum: ['walk', 'bicycle', 'motorcycle', 'bus', 'subway', 'train', 'car', 'taxi', 'ship', 'plane'],
+    default: 'bus'
   },
   estimatedTime: String,
   category: String

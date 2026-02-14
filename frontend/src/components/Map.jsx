@@ -5,17 +5,29 @@ import 'leaflet/dist/leaflet.css';
 
 // 이동수단별 색상
 const TRANSPORT_COLORS = {
-  walk: '#10b981',     // 초록
-  transit: '#3b82f6',  // 파랑
-  car: '#f97316',      // 주황
-  taxi: '#eab308',     // 노랑
+  walk: '#10b981',       // 초록
+  bicycle: '#34d399',    // 에메랄드
+  motorcycle: '#a855f7', // 보라
+  bus: '#3b82f6',        // 파랑
+  subway: '#6366f1',     // 인디고
+  train: '#8b5cf6',      // 바이올렛
+  car: '#f97316',        // 주황
+  taxi: '#eab308',       // 노랑
+  ship: '#06b6d4',       // 시안
+  plane: '#ec4899',      // 핑크
 };
 
 const TRANSPORT_LABELS = {
   walk: '도보',
-  transit: '대중교통',
+  bicycle: '자전거',
+  motorcycle: '바이크',
+  bus: '버스',
+  subway: '지하철',
+  train: '기차',
   car: '자차',
   taxi: '택시',
+  ship: '배',
+  plane: '비행기',
 };
 
 // 순서 번호가 표시되는 커스텀 마커 생성
@@ -75,11 +87,11 @@ const Map = ({ places }) => {
     for (let i = 0; i < places.length - 1; i++) {
       const from = places[i];
       const to = places[i + 1];
-      const transport = to.transport || 'transit';
+      const transport = to.transport || 'bus';
 
       segments.push({
         positions: [[from.lat, from.lng], [to.lat, to.lng]],
-        color: TRANSPORT_COLORS[transport] || TRANSPORT_COLORS.transit,
+        color: TRANSPORT_COLORS[transport] || TRANSPORT_COLORS.bus,
         transport,
         from: from.name,
         to: to.name,
@@ -112,7 +124,7 @@ const Map = ({ places }) => {
               color: seg.color,
               weight: 5,
               opacity: 0.8,
-              dashArray: seg.transport === 'walk' ? '10, 10' : undefined,
+              dashArray: ['walk', 'bicycle'].includes(seg.transport) ? '10, 10' : undefined,
             }}
           >
             <Popup>
