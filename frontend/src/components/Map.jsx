@@ -1,11 +1,9 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 // 이동수단별 스타일 (색상 + 선 패턴 + 두께)
-// dashArray: SVG dash 패턴 (선길이, 간격, ...)
-// 색각 이상자도 패턴만으로 구분 가능하도록 설계
 const TRANSPORT_STYLES = {
   walk:       { color: '#10b981', dashArray: '4, 8',          weight: 4, label: '도보',    pattern: '· · · ·' },
   bicycle:    { color: '#34d399', dashArray: '10, 6',         weight: 4, label: '자전거',  pattern: '- - - -' },
@@ -17,6 +15,47 @@ const TRANSPORT_STYLES = {
   taxi:       { color: '#eab308', dashArray: undefined,       weight: 3, label: '택시',    pattern: '───' },
   ship:       { color: '#06b6d4', dashArray: '6, 6',          weight: 5, label: '배',      pattern: '~ ~ ~' },
   plane:      { color: '#ec4899', dashArray: '20, 14',        weight: 4, label: '비행기',  pattern: '── ──' },
+};
+
+// 교통수단 → OSRM 프로파일 매핑
+// ship, plane은 직선 (라우팅 불필요)
+const OSRM_PROFILE_MAP = {
+  walk: 'foot',
+  bicycle: 'bike',
+  motorcycle: 'car',
+  bus: 'car',
+  subway: 'foot',    // 지하철은 도로 위에 정확히 매핑이 안 되므로 foot으로
+  train: 'car',      // 기차역 간 도로 경로로 근사
+  car: 'car',
+  taxi: 'car',
+  ship: null,         // 직선
+  plane: null,        // 직선
+};
+
+// OSRM 경로 캐시 (세션 동안 유지)
+const routeCache = {};
+
+// OSRM 데모 서버에서 실제 도로 경로 좌표를 가져오는 함수
+const fetchRoute = async (fromLat, fromLng, toLat, toLng, profile) => {
+  const cacheKey = `${fromLat},${fromLng}-${toLat},${toLng}-${profile}`;
+  if (routeCache[cacheKey]) return routeCache[cacheKey];
+
+  try {
+    const url = `https://router.project-osrm.org/route/v1/${profile}/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=geojson`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.code === 'Ok' && data.routes?.[0]?.geometry?.coordinates) {
+      // GeoJSON은 [lng, lat] → Leaflet은 [lat, lng]으로 변환
+      const coords = data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+      routeCache[cacheKey] = coords;
+      return coords;
+    }
+  } catch (error) {
+    console.warn('OSRM 경로 요청 실패:', error);
+  }
+
+  return null; // 실패 시 null → 직선 폴백
 };
 
 // 순서 번호가 표시되는 커스텀 마커 생성
@@ -68,26 +107,79 @@ const FitBounds = ({ places }) => {
 };
 
 const Map = ({ places }) => {
-  // 경로선 세그먼트 생성 (장소 사이마다 이동수단 스타일 적용)
-  const routeSegments = useMemo(() => {
-    if (places.length < 2) return [];
+  const [routeSegments, setRouteSegments] = useState([]);
+  const abortRef = useRef(null);
 
-    const segments = [];
+  // places가 바뀔 때마다 경로 계산
+  useEffect(() => {
+    // 이전 요청 취소 플래그
+    if (abortRef.current) abortRef.current.cancelled = true;
+    const thisRequest = { cancelled: false };
+    abortRef.current = thisRequest;
+
+    if (places.length < 2) {
+      setRouteSegments([]);
+      return;
+    }
+
+    const buildSegments = async () => {
+      const segments = [];
+
+      for (let i = 0; i < places.length - 1; i++) {
+        if (thisRequest.cancelled) return;
+
+        const from = places[i];
+        const to = places[i + 1];
+        const transport = to.transport || 'bus';
+        const style = TRANSPORT_STYLES[transport] || TRANSPORT_STYLES.bus;
+        const osrmProfile = OSRM_PROFILE_MAP[transport];
+
+        let positions;
+
+        if (osrmProfile) {
+          // 도로 기반 교통수단 → OSRM에서 실제 도로 경로 가져오기
+          const routeCoords = await fetchRoute(from.lat, from.lng, to.lat, to.lng, osrmProfile);
+          positions = routeCoords || [[from.lat, from.lng], [to.lat, to.lng]]; // 실패 시 직선 폴백
+        } else {
+          // 배, 비행기 → 직선
+          positions = [[from.lat, from.lng], [to.lat, to.lng]];
+        }
+
+        segments.push({
+          positions,
+          style,
+          transport,
+          from: from.name,
+          to: to.name,
+          isRoadRoute: !!osrmProfile && positions.length > 2,
+        });
+      }
+
+      if (!thisRequest.cancelled) {
+        setRouteSegments(segments);
+      }
+    };
+
+    // 즉시 직선으로 표시 후, 비동기로 도로 경로 업데이트
+    const quickSegments = [];
     for (let i = 0; i < places.length - 1; i++) {
       const from = places[i];
       const to = places[i + 1];
       const transport = to.transport || 'bus';
       const style = TRANSPORT_STYLES[transport] || TRANSPORT_STYLES.bus;
-
-      segments.push({
+      quickSegments.push({
         positions: [[from.lat, from.lng], [to.lat, to.lng]],
         style,
         transport,
         from: from.name,
         to: to.name,
+        isRoadRoute: false,
       });
     }
-    return segments;
+    setRouteSegments(quickSegments);
+
+    // 비동기로 실제 도로 경로 가져오기
+    buildSegments();
   }, [places]);
 
   return (
@@ -105,10 +197,10 @@ const Map = ({ places }) => {
 
         <FitBounds places={places} />
 
-        {/* 경로선 (이동수단별 색상 + 패턴) */}
+        {/* 경로선 (이동수단별 색상 + 패턴, 도로 기반 라우팅) */}
         {routeSegments.map((seg, i) => (
           <Polyline
-            key={`route-${i}`}
+            key={`route-${i}-${seg.positions.length}`}
             positions={seg.positions}
             pathOptions={{
               color: seg.style.color,
