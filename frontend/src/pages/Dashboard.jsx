@@ -138,6 +138,12 @@ const Dashboard = () => {
     setPlaces(updated);
   };
 
+  const handleUpdateReservation = (index, reservation) => {
+    const updated = [...places];
+    updated[index] = { ...updated[index], reservation };
+    setPlaces(updated);
+  };
+
   const handleLogout = () => {
     logout();
     navigate('/');
@@ -276,6 +282,7 @@ const Dashboard = () => {
                   onDelete={handleDelete}
                   onUpdateNote={handleUpdateNote}
                   onUpdateTransport={handleUpdateTransport}
+                  onUpdateReservation={handleUpdateReservation}
                 />
               </div>
             </>

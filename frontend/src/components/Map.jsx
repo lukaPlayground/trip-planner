@@ -157,6 +157,12 @@ const Map = ({ places }) => {
                     </span>
                   </>
                 )}
+                {place.reservation && (
+                  <>
+                    <br />
+                    <span style={{ color: '#d97706' }}>🎫 {place.reservation}</span>
+                  </>
+                )}
                 {place.note && (
                   <>
                     <br />

@@ -31,6 +31,10 @@ const placeSchema = new mongoose.Schema({
     enum: ['walk', 'bicycle', 'motorcycle', 'bus', 'subway', 'train', 'car', 'taxi', 'ship', 'plane'],
     default: 'bus'
   },
+  reservation: {
+    type: String,
+    default: ''
+  },
   estimatedTime: String,
   category: String
 });
