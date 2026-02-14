@@ -3,31 +3,20 @@ import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-// 이동수단별 색상
-const TRANSPORT_COLORS = {
-  walk: '#10b981',       // 초록
-  bicycle: '#34d399',    // 에메랄드
-  motorcycle: '#a855f7', // 보라
-  bus: '#3b82f6',        // 파랑
-  subway: '#6366f1',     // 인디고
-  train: '#8b5cf6',      // 바이올렛
-  car: '#f97316',        // 주황
-  taxi: '#eab308',       // 노랑
-  ship: '#06b6d4',       // 시안
-  plane: '#ec4899',      // 핑크
-};
-
-const TRANSPORT_LABELS = {
-  walk: '도보',
-  bicycle: '자전거',
-  motorcycle: '바이크',
-  bus: '버스',
-  subway: '지하철',
-  train: '기차',
-  car: '자차',
-  taxi: '택시',
-  ship: '배',
-  plane: '비행기',
+// 이동수단별 스타일 (색상 + 선 패턴 + 두께)
+// dashArray: SVG dash 패턴 (선길이, 간격, ...)
+// 색각 이상자도 패턴만으로 구분 가능하도록 설계
+const TRANSPORT_STYLES = {
+  walk:       { color: '#10b981', dashArray: '4, 8',          weight: 4, label: '도보',    pattern: '· · · ·' },
+  bicycle:    { color: '#34d399', dashArray: '10, 6',         weight: 4, label: '자전거',  pattern: '- - - -' },
+  motorcycle: { color: '#a855f7', dashArray: '14, 6, 4, 6',  weight: 4, label: '바이크',  pattern: '─ · ─ ·' },
+  bus:        { color: '#3b82f6', dashArray: undefined,       weight: 6, label: '버스',    pattern: '━━━━' },
+  subway:     { color: '#6366f1', dashArray: '16, 8',         weight: 6, label: '지하철',  pattern: '━ ━ ━' },
+  train:      { color: '#8b5cf6', dashArray: '24, 8',         weight: 6, label: '기차',    pattern: '━━ ━━' },
+  car:        { color: '#f97316', dashArray: undefined,       weight: 5, label: '자차',    pattern: '━━━━' },
+  taxi:       { color: '#eab308', dashArray: undefined,       weight: 3, label: '택시',    pattern: '───' },
+  ship:       { color: '#06b6d4', dashArray: '6, 6',          weight: 5, label: '배',      pattern: '~ ~ ~' },
+  plane:      { color: '#ec4899', dashArray: '20, 14',        weight: 4, label: '비행기',  pattern: '── ──' },
 };
 
 // 순서 번호가 표시되는 커스텀 마커 생성
@@ -79,7 +68,7 @@ const FitBounds = ({ places }) => {
 };
 
 const Map = ({ places }) => {
-  // 경로선 세그먼트 생성 (장소 사이마다 이동수단 색상 적용)
+  // 경로선 세그먼트 생성 (장소 사이마다 이동수단 스타일 적용)
   const routeSegments = useMemo(() => {
     if (places.length < 2) return [];
 
@@ -88,10 +77,11 @@ const Map = ({ places }) => {
       const from = places[i];
       const to = places[i + 1];
       const transport = to.transport || 'bus';
+      const style = TRANSPORT_STYLES[transport] || TRANSPORT_STYLES.bus;
 
       segments.push({
         positions: [[from.lat, from.lng], [to.lat, to.lng]],
-        color: TRANSPORT_COLORS[transport] || TRANSPORT_COLORS.bus,
+        style,
         transport,
         from: from.name,
         to: to.name,
@@ -115,80 +105,89 @@ const Map = ({ places }) => {
 
         <FitBounds places={places} />
 
-        {/* 경로선 (이동수단별 색상) */}
+        {/* 경로선 (이동수단별 색상 + 패턴) */}
         {routeSegments.map((seg, i) => (
           <Polyline
             key={`route-${i}`}
             positions={seg.positions}
             pathOptions={{
-              color: seg.color,
-              weight: 5,
-              opacity: 0.8,
-              dashArray: ['walk', 'bicycle'].includes(seg.transport) ? '10, 10' : undefined,
+              color: seg.style.color,
+              weight: seg.style.weight,
+              opacity: 0.85,
+              dashArray: seg.style.dashArray,
+              lineCap: 'round',
+              lineJoin: 'round',
             }}
           >
             <Popup>
               <div className="text-sm">
                 <strong>{seg.from}</strong> → <strong>{seg.to}</strong>
                 <br />
-                <span style={{ color: seg.color }}>● {TRANSPORT_LABELS[seg.transport]}</span>
+                <span style={{ color: seg.style.color }}>
+                  {seg.style.pattern} {seg.style.label}
+                </span>
               </div>
             </Popup>
           </Polyline>
         ))}
 
         {/* 마커 */}
-        {places.map((place, index) => (
-          <Marker
-            key={place._id || place.id || `marker-${index}`}
-            position={[place.lat, place.lng]}
-            icon={createNumberedIcon(place.order, place.checked)}
-          >
-            <Popup>
-              <div className="text-sm">
-                <strong>{place.order}. {place.name}</strong>
-                <br />
-                <span className="text-gray-500">{place.address}</span>
-                {place.transport && (
-                  <>
-                    <br />
-                    <span style={{ color: TRANSPORT_COLORS[place.transport] }}>
-                      ● {TRANSPORT_LABELS[place.transport]}으로 이동
-                    </span>
-                  </>
-                )}
-                {place.reservation && (
-                  <>
-                    <br />
-                    <span style={{ color: '#d97706' }}>🎫 {place.reservation}</span>
-                  </>
-                )}
-                {place.note && (
-                  <>
-                    <br />
-                    <span className="text-gray-400">📝 {place.note}</span>
-                  </>
-                )}
-              </div>
-            </Popup>
-          </Marker>
-        ))}
+        {places.map((place, index) => {
+          const style = TRANSPORT_STYLES[place.transport] || TRANSPORT_STYLES.bus;
+          return (
+            <Marker
+              key={place._id || place.id || `marker-${index}`}
+              position={[place.lat, place.lng]}
+              icon={createNumberedIcon(place.order, place.checked)}
+            >
+              <Popup>
+                <div className="text-sm">
+                  <strong>{place.order}. {place.name}</strong>
+                  <br />
+                  <span className="text-gray-500">{place.address}</span>
+                  {place.transport && (
+                    <>
+                      <br />
+                      <span style={{ color: style.color }}>
+                        {style.pattern} {style.label}으로 이동
+                      </span>
+                    </>
+                  )}
+                  {place.reservation && (
+                    <>
+                      <br />
+                      <span style={{ color: '#d97706' }}>🎫 {place.reservation}</span>
+                    </>
+                  )}
+                  {place.note && (
+                    <>
+                      <br />
+                      <span className="text-gray-400">📝 {place.note}</span>
+                    </>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
       </MapContainer>
 
-      {/* 범례 */}
+      {/* 범례 - 패턴 미리보기 포함 */}
       {places.length >= 2 && (
         <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 shadow-md z-[1000] text-xs">
           <div className="font-semibold text-gray-700 mb-1">이동수단</div>
-          {Object.entries(TRANSPORT_LABELS).map(([key, label]) => (
-            <div key={key} className="flex items-center gap-1.5">
-              <span
-                className="inline-block w-4 h-0.5 rounded"
-                style={{
-                  backgroundColor: TRANSPORT_COLORS[key],
-                  borderBottom: key === 'walk' ? `2px dashed ${TRANSPORT_COLORS[key]}` : `2px solid ${TRANSPORT_COLORS[key]}`,
-                }}
-              />
-              <span className="text-gray-600">{label}</span>
+          {Object.entries(TRANSPORT_STYLES).map(([key, style]) => (
+            <div key={key} className="flex items-center gap-2 py-0.5">
+              <svg width="28" height="6" className="flex-shrink-0">
+                <line
+                  x1="0" y1="3" x2="28" y2="3"
+                  stroke={style.color}
+                  strokeWidth={style.weight > 5 ? 3 : style.weight > 3 ? 2.5 : 2}
+                  strokeDasharray={style.dashArray ? style.dashArray.split(',').map(v => parseFloat(v) * 0.6).join(',') : undefined}
+                  strokeLinecap="round"
+                />
+              </svg>
+              <span className="text-gray-600">{style.label}</span>
             </div>
           ))}
         </div>
