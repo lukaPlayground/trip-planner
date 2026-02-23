@@ -4,16 +4,16 @@ import { FaGripVertical, FaTrash, FaCheck, FaWalking, FaBicycle, FaMotorcycle, F
 
 // 예약 가능 여부 포함
 const TRANSPORT_OPTIONS = [
-  { value: 'walk', icon: FaWalking, label: '도보', color: '#10b981', reservable: false },
-  { value: 'bicycle', icon: FaBicycle, label: '자전거', color: '#34d399', reservable: false },
+  { value: 'walk',       icon: FaWalking,    label: '도보',   color: '#10b981', reservable: false },
+  { value: 'bicycle',    icon: FaBicycle,    label: '자전거', color: '#34d399', reservable: false },
   { value: 'motorcycle', icon: FaMotorcycle, label: '바이크', color: '#a855f7', reservable: false },
-  { value: 'bus', icon: FaBus, label: '버스', color: '#3b82f6', reservable: true, placeholder: '예매번호 (고속/시외버스)' },
-  { value: 'subway', icon: FaSubway, label: '지하철', color: '#6366f1', reservable: false },
-  { value: 'train', icon: FaTrain, label: '기차', color: '#8b5cf6', reservable: true, placeholder: '예매번호 (KTX/SRT 등)' },
-  { value: 'car', icon: FaCar, label: '자차', color: '#f97316', reservable: false },
-  { value: 'taxi', icon: FaTaxi, label: '택시', color: '#eab308', reservable: false },
-  { value: 'ship', icon: FaShip, label: '배', color: '#06b6d4', reservable: true, placeholder: '예매번호 (여객선)' },
-  { value: 'plane', icon: FaPlane, label: '비행기', color: '#ec4899', reservable: true, placeholder: '예약번호 (항공편명)' },
+  { value: 'bus',        icon: FaBus,        label: '버스',   color: '#3b82f6', reservable: true, placeholder: '예매번호 (고속/시외버스)' },
+  { value: 'subway',     icon: FaSubway,     label: '지하철', color: '#6366f1', reservable: false },
+  { value: 'train',      icon: FaTrain,      label: '기차',   color: '#8b5cf6', reservable: true, placeholder: '예매번호 (KTX/SRT 등)' },
+  { value: 'car',        icon: FaCar,        label: '자차',   color: '#f97316', reservable: false },
+  { value: 'taxi',       icon: FaTaxi,       label: '택시',   color: '#eab308', reservable: false },
+  { value: 'ship',       icon: FaShip,       label: '배',     color: '#06b6d4', reservable: true, placeholder: '예매번호 (여객선)' },
+  { value: 'plane',      icon: FaPlane,      label: '비행기', color: '#ec4899', reservable: true, placeholder: '예약번호 (항공편명)' },
 ];
 
 // 스크롤 가능 여부 감지 훅
@@ -24,12 +24,9 @@ const useScrollHint = () => {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-
     const check = () => {
-      // 스크롤 가능하고, 아직 끝까지 안 갔으면 힌트 표시
       setShowHint(el.scrollWidth > el.clientWidth && el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
     };
-
     check();
     el.addEventListener('scroll', check);
     window.addEventListener('resize', check);
@@ -40,50 +37,6 @@ const useScrollHint = () => {
   }, []);
 
   return { scrollRef, showHint };
-};
-
-// 교통수단 버튼 행 컴포넌트
-const TransportRow = ({ place, index, currentTransport, isReservable, onUpdateTransport, onUpdateReservation }) => {
-  const { scrollRef, showHint } = useScrollHint();
-
-  return (
-    <div className="relative">
-      <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-thin" ref={scrollRef}>
-        {TRANSPORT_OPTIONS.map(({ value, icon: Icon, label, color, reservable }) => {
-          const isActive = currentTransport === value;
-          return (
-            <button
-              key={value}
-              onClick={() => {
-                onUpdateTransport(index, value);
-                if (!reservable) {
-                  if (place.reservation) onUpdateReservation(index, '');
-                }
-              }}
-              title={label}
-              className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-all border"
-              style={{
-                backgroundColor: isActive ? color + '18' : 'transparent',
-                borderColor: isActive ? color : '#e5e7eb',
-                color: isActive ? color : '#9ca3af',
-              }}
-            >
-              <Icon size={14} />
-            </button>
-          );
-        })}
-      </div>
-
-      {/* 스크롤 힌트 - 더 많은 옵션이 있음을 표시 */}
-      {showHint && (
-        <div className="absolute right-0 top-0 h-8 flex items-center pl-4 pointer-events-none"
-          style={{ background: 'linear-gradient(to right, transparent, white 40%)' }}
-        >
-          <FaChevronRight size={10} className="text-gray-400 animate-pulse" />
-        </div>
-      )}
-    </div>
-  );
 };
 
 // 구간 소요시간 포맷 (초 단위)
@@ -98,7 +51,7 @@ const TransitDetailPanel = ({ transitDetail }) => {
   if (!transitDetail || transitDetail.length === 0) return null;
 
   return (
-    <div className="mt-2 rounded-lg border border-blue-100 bg-blue-50 overflow-hidden">
+    <div className="mt-1.5 rounded-lg border border-blue-100 bg-blue-50 overflow-hidden">
       {transitDetail.map((d, i) => {
         if (d.type === 'walk') {
           return (
@@ -153,33 +106,122 @@ const TransitDetailPanel = ({ transitDetail }) => {
   );
 };
 
-// 구간 소요시간/거리 요약 + 환승 정보 토글 컴포넌트
-const SegmentInfo = ({ segTimeStr, segDistStr, transportColor, transitDetail, hasTransitDetail }) => {
+// 장소 사이 구간 카드: 이동수단 선택 + 소요시간/거리 + 예약정보 + 환승상세
+const SegmentCard = ({
+  placeIndex,       // 도착 장소의 인덱스 (= 이 구간의 to 인덱스)
+  place,            // 도착 장소 (transport, reservation 필드 보유)
+  seg,              // routeSegments[placeIndex - 1]
+  onUpdateTransport,
+  onUpdateReservation,
+}) => {
   const [open, setOpen] = useState(false);
+  const { scrollRef, showHint } = useScrollHint();
+
+  const currentTransport = place.transport || 'bus';
+  const transportOpt = TRANSPORT_OPTIONS.find(t => t.value === currentTransport);
+  const transportColor = transportOpt?.color || '#3b82f6';
+  const isReservable = transportOpt?.reservable;
+
+  const segTimeStr = seg?.time != null ? formatSegTime(seg.time) : null;
+  const segDistStr = seg?.distance != null ? `${seg.distance.toFixed(1)}km` : null;
+  const hasTransitDetail = seg?.transitDetail && seg.transitDetail.length > 0;
 
   return (
-    <div className="mt-1.5">
-      {/* 요약 바: 소요시간 · 거리 · 환승정보 토글 */}
-      <div className="flex items-center gap-2 text-xs text-gray-400">
-        {segTimeStr && (
-          <span style={{ color: transportColor }} className="font-medium">{segTimeStr}</span>
+    <div className="relative flex items-stretch px-1">
+      {/* 세로 연결선 */}
+      <div className="flex flex-col items-center mr-2" style={{ width: '28px' }}>
+        <div className="w-0.5 flex-1" style={{ backgroundColor: transportColor, opacity: 0.25 }} />
+      </div>
+
+      {/* 카드 본문 */}
+      <div className="flex-1 my-1 py-2.5 px-3 rounded-xl border bg-white shadow-sm"
+        style={{ borderColor: transportColor + '40' }}>
+
+        {/* 이동수단 선택 버튼 행 */}
+        <div className="relative mb-2">
+          <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-thin" ref={scrollRef}>
+            {TRANSPORT_OPTIONS.map(({ value, icon: Icon, label, color, reservable }) => {
+              const isActive = currentTransport === value;
+              return (
+                <button
+                  key={value}
+                  onClick={() => {
+                    onUpdateTransport(placeIndex, value);
+                    if (!reservable && place.reservation) {
+                      onUpdateReservation(placeIndex, '');
+                    }
+                  }}
+                  title={label}
+                  className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-all border"
+                  style={{
+                    backgroundColor: isActive ? color + '18' : 'transparent',
+                    borderColor: isActive ? color : '#e5e7eb',
+                    color: isActive ? color : '#9ca3af',
+                  }}
+                >
+                  <Icon size={14} />
+                </button>
+              );
+            })}
+          </div>
+          {showHint && (
+            <div className="absolute right-0 top-0 h-8 flex items-center pl-4 pointer-events-none"
+              style={{ background: 'linear-gradient(to right, transparent, white 40%)' }}>
+              <FaChevronRight size={10} className="text-gray-400 animate-pulse" />
+            </div>
+          )}
+        </div>
+
+        {/* 소요시간 · 거리 · 환승정보 */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {segTimeStr && (
+            <span className="text-xs font-semibold" style={{ color: transportColor }}>{segTimeStr}</span>
+          )}
+          {segDistStr && (
+            <span className="text-xs text-gray-400">{segDistStr}</span>
+          )}
+          {hasTransitDetail && (
+            <button
+              onClick={() => setOpen(v => !v)}
+              className="flex items-center gap-0.5 ml-auto text-blue-400 hover:text-blue-600 transition-colors text-xs"
+            >
+              <FaExchangeAlt size={9} />
+              <span>환승정보</span>
+              {open ? <FaChevronDown size={8} /> : <FaChevronRight size={8} />}
+            </button>
+          )}
+        </div>
+
+        {/* 환승 상세 패널 */}
+        {open && hasTransitDetail && (
+          <TransitDetailPanel transitDetail={seg.transitDetail} />
         )}
-        {segDistStr && <span>{segDistStr}</span>}
-        {hasTransitDetail && (
-          <button
-            onClick={() => setOpen(v => !v)}
-            className="flex items-center gap-0.5 ml-auto text-blue-400 hover:text-blue-600 transition-colors"
-          >
-            <FaExchangeAlt size={9} />
-            <span>환승정보</span>
-            {open ? <FaChevronDown size={8} /> : <FaChevronRight size={8} />}
-          </button>
+
+        {/* 예약 정보 입력 (예약 가능 수단일 때) */}
+        {isReservable && (
+          <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="flex items-center gap-1.5 mb-1">
+              <FaTicketAlt size={10} className="text-amber-500" />
+              <span className="text-xs font-medium text-amber-700">
+                {transportOpt.label} 예약정보
+              </span>
+            </div>
+            <input
+              type="text"
+              placeholder={transportOpt.placeholder}
+              value={place.reservation || ''}
+              onChange={(e) => onUpdateReservation(placeIndex, e.target.value)}
+              className="w-full text-xs border border-amber-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400 bg-white"
+            />
+            {place.reservation && (
+              <div className="mt-1 flex items-center gap-1 text-xs text-amber-600">
+                <FaCheck size={8} />
+                <span>예약번호 저장됨</span>
+              </div>
+            )}
+          </div>
         )}
       </div>
-      {/* 환승 상세 패널 */}
-      {open && hasTransitDetail && (
-        <TransitDetailPanel transitDetail={transitDetail} />
-      )}
     </div>
   );
 };
@@ -200,8 +242,6 @@ const PlaceList = ({ places, routeSegments = [], onReorder, onToggleCheck, onDel
     onReorder(reordered);
   };
 
-  const getTransportOption = (value) => TRANSPORT_OPTIONS.find(t => t.value === value);
-
   if (places.length === 0) {
     return (
       <div className="text-center py-12 text-gray-400">
@@ -218,136 +258,91 @@ const PlaceList = ({ places, routeSegments = [], onReorder, onToggleCheck, onDel
           <div
             {...provided.droppableProps}
             ref={provided.innerRef}
-            className="space-y-2"
           >
             {places.map((place, index) => {
-              const currentTransport = place.transport || 'bus';
-              const transportOpt = getTransportOption(currentTransport);
-              const isReservable = transportOpt?.reservable;
-
-              // 이 장소로 오는 구간 정보 (index-1번 세그먼트)
-              // routeSegments[i]는 places[i] → places[i+1] 구간
+              // 이 장소로 오는 구간 (index-1번 세그먼트)
               const seg = index > 0 ? routeSegments[index - 1] : null;
-              const segTimeStr = seg?.time != null ? formatSegTime(seg.time) : null;
-              const segDistStr = seg?.distance != null ? `${seg.distance.toFixed(1)}km` : null;
-              const hasTransitDetail = seg?.transitDetail && seg.transitDetail.length > 0;
 
               return (
-                <Draggable
-                  key={place._id || place.id || `place-${index}`}
-                  draggableId={String(place._id || place.id || `place-${index}`)}
-                  index={index}
-                >
-                  {(provided, snapshot) => (
-                    <div
-                      ref={provided.innerRef}
-                      {...provided.draggableProps}
-                      className={`bg-white p-3 rounded-lg border transition-shadow ${
-                        snapshot.isDragging ? 'shadow-lg border-blue-300' : 'border-gray-200 shadow-sm'
-                      } ${place.checked ? 'opacity-60' : ''}`}
-                    >
-                      {/* 상단 행: 드래그핸들 + 번호 + 장소명 + 버튼 */}
-                      <div className="flex items-center gap-2">
-                        <div {...provided.dragHandleProps} className="cursor-grab active:cursor-grabbing flex-shrink-0">
-                          <FaGripVertical className="text-gray-300" size={13} />
-                        </div>
-
-                        <div className="flex-shrink-0 w-7 h-7 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold text-xs">
-                          {place.order}
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                          <p className={`font-semibold text-sm text-gray-800 truncate ${place.checked ? 'line-through text-gray-400' : ''}`}>
-                            {place.name}
-                          </p>
-                          <p className="text-xs text-gray-400 truncate">{place.address}</p>
-                        </div>
-
-                        {/* 우측 버튼 */}
-                        <div className="flex gap-1 flex-shrink-0">
-                          <button
-                            onClick={() => onToggleCheck(index)}
-                            className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${
-                              place.checked
-                                ? 'bg-green-500 text-white'
-                                : 'bg-gray-100 text-gray-400 hover:bg-green-100 hover:text-green-600'
-                            }`}
-                            title={place.checked ? '완료 취소' : '완료 표시'}
-                          >
-                            <FaCheck size={11} />
-                          </button>
-                          <button
-                            onClick={() => onDelete(index)}
-                            className="w-7 h-7 flex items-center justify-center bg-gray-100 text-gray-400 hover:bg-red-100 hover:text-red-500 rounded-lg transition-colors"
-                            title="삭제"
-                          >
-                            <FaTrash size={11} />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* 이동수단 + 예약정보 + 메모 (2번째 장소부터) */}
-                      {index > 0 && (
-                        <div className="mt-2 ml-9">
-                          <TransportRow
-                            place={place}
-                            index={index}
-                            currentTransport={currentTransport}
-                            isReservable={isReservable}
-                            onUpdateTransport={onUpdateTransport}
-                            onUpdateReservation={onUpdateReservation}
-                          />
-
-                          {/* 구간 소요시간/거리 요약 + 환승 정보 토글 */}
-                          {(segTimeStr || segDistStr || hasTransitDetail) && (
-                            <SegmentInfo
-                              segTimeStr={segTimeStr}
-                              segDistStr={segDistStr}
-                              transportColor={transportOpt?.color || '#3b82f6'}
-                              transitDetail={seg?.transitDetail}
-                              hasTransitDetail={hasTransitDetail}
-                            />
-                          )}
-
-                          {isReservable && (
-                            <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg">
-                              <div className="flex items-center gap-1.5 mb-1">
-                                <FaTicketAlt size={10} className="text-amber-500" />
-                                <span className="text-xs font-medium text-amber-700">
-                                  {transportOpt.label} 예약정보
-                                </span>
-                              </div>
-                              <input
-                                type="text"
-                                placeholder={transportOpt.placeholder}
-                                value={place.reservation || ''}
-                                onChange={(e) => onUpdateReservation(index, e.target.value)}
-                                className="w-full text-xs border border-amber-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400 bg-white"
-                              />
-                              {place.reservation && (
-                                <div className="mt-1 flex items-center gap-1 text-xs text-amber-600">
-                                  <FaCheck size={8} />
-                                  <span>예약번호 저장됨</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* 메모 입력 */}
-                      <div className="mt-2 ml-9">
-                        <input
-                          type="text"
-                          placeholder="메모 (예: 2시간 소요)"
-                          value={place.note || ''}
-                          onChange={(e) => onUpdateNote(index, e.target.value)}
-                          className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                        />
-                      </div>
-                    </div>
+                <div key={place._id || place.id || `place-${index}`}>
+                  {/* ── 구간 카드 (출발지 제외) ── */}
+                  {index > 0 && (
+                    <SegmentCard
+                      placeIndex={index}
+                      place={place}
+                      seg={seg}
+                      onUpdateTransport={onUpdateTransport}
+                      onUpdateReservation={onUpdateReservation}
+                    />
                   )}
-                </Draggable>
+
+                  {/* ── 장소 카드 ── */}
+                  <Draggable
+                    draggableId={String(place._id || place.id || `place-${index}`)}
+                    index={index}
+                  >
+                    {(provided, snapshot) => (
+                      <div
+                        ref={provided.innerRef}
+                        {...provided.draggableProps}
+                        className={`bg-white p-3 rounded-lg border transition-shadow ${
+                          snapshot.isDragging ? 'shadow-lg border-blue-300' : 'border-gray-200 shadow-sm'
+                        } ${place.checked ? 'opacity-60' : ''}`}
+                      >
+                        {/* 상단 행: 드래그핸들 + 번호 + 장소명 + 버튼 */}
+                        <div className="flex items-center gap-2">
+                          <div {...provided.dragHandleProps} className="cursor-grab active:cursor-grabbing flex-shrink-0">
+                            <FaGripVertical className="text-gray-300" size={13} />
+                          </div>
+
+                          <div className="flex-shrink-0 w-7 h-7 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold text-xs">
+                            {place.order}
+                          </div>
+
+                          <div className="flex-1 min-w-0">
+                            <p className={`font-semibold text-sm text-gray-800 truncate ${place.checked ? 'line-through text-gray-400' : ''}`}>
+                              {place.name}
+                            </p>
+                            <p className="text-xs text-gray-400 truncate">{place.address}</p>
+                          </div>
+
+                          {/* 우측 버튼 */}
+                          <div className="flex gap-1 flex-shrink-0">
+                            <button
+                              onClick={() => onToggleCheck(index)}
+                              className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${
+                                place.checked
+                                  ? 'bg-green-500 text-white'
+                                  : 'bg-gray-100 text-gray-400 hover:bg-green-100 hover:text-green-600'
+                              }`}
+                              title={place.checked ? '완료 취소' : '완료 표시'}
+                            >
+                              <FaCheck size={11} />
+                            </button>
+                            <button
+                              onClick={() => onDelete(index)}
+                              className="w-7 h-7 flex items-center justify-center bg-gray-100 text-gray-400 hover:bg-red-100 hover:text-red-500 rounded-lg transition-colors"
+                              title="삭제"
+                            >
+                              <FaTrash size={11} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 메모 입력 */}
+                        <div className="mt-2 ml-9">
+                          <input
+                            type="text"
+                            placeholder="메모 (예: 2시간 소요)"
+                            value={place.note || ''}
+                            onChange={(e) => onUpdateNote(index, e.target.value)}
+                            className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </Draggable>
+                </div>
               );
             })}
             {provided.placeholder}

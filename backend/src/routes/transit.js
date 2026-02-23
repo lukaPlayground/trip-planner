@@ -31,10 +31,122 @@ const callOdsay = async (sx, sy, ex, ey, searchType, searchPathType) => {
   return response.json();
 };
 
+const hasResult = (d) => d?.result?.path && d.result.path.length > 0;
+
+// 도시내→광역 순서로 시도해서 첫 번째 유효한 결과 반환
+const callOdsayWithFallback = async (sx, sy, ex, ey, searchPathType) => {
+  let data = await callOdsay(sx, sy, ex, ey, 0, searchPathType);
+  if (!hasResult(data)) {
+    console.log(`ODsay 도시내 결과 없음 (${sx},${sy}→${ex},${ey}) → 광역(SearchType=1) 재시도`);
+    data = await callOdsay(sx, sy, ex, ey, 1, searchPathType);
+  }
+  return data;
+};
+
+// ODsay 응답에서 좌표 배열 + transitDetail + info 추출
+const extractRouteData = (data) => {
+  if (!hasResult(data)) return null;
+
+  const bestPath = data.result.path[0];
+  const info = {
+    totalTime: bestPath.info?.totalTime ?? null,         // 분
+    payment: bestPath.info?.payment ?? null,             // 원
+    totalDistance: bestPath.info?.totalDistance ?? null, // m
+    transferCount: bestPath.info?.transferCount ?? null,
+    busTransitCount: bestPath.info?.busTransitCount ?? null,
+    subwayTransitCount: bestPath.info?.subwayTransitCount ?? null,
+  };
+
+  const allCoords = [];
+  const transitDetail = [];
+  const subPaths = bestPath.subPath || [];
+
+  for (const subPath of subPaths) {
+    const trafficType = subPath.trafficType;
+    const stations = subPath.passStopList?.stations;
+
+    if (stations && stations.length > 0) {
+      for (const st of stations) {
+        const x = parseFloat(st.x);
+        const y = parseFloat(st.y);
+        if (!isNaN(x) && !isNaN(y)) allCoords.push([y, x]); // [lat, lng]
+      }
+
+      const firstStation = stations[0];
+      const lastStation = stations[stations.length - 1];
+
+      if (trafficType === 2) {
+        // 버스 구간
+        const laneList = subPath.lane || [];
+        const busNos = laneList
+          .map(l => l.busNo || l.name || '')
+          .filter(Boolean)
+          .filter((v, i, arr) => arr.indexOf(v) === i);
+
+        transitDetail.push({
+          type: 'bus',
+          lines: busNos.length > 0 ? busNos : ['버스'],
+          boardStation: firstStation.stationName || firstStation.name || '',
+          alightStation: lastStation.stationName || lastStation.name || '',
+          stationCount: stations.length,
+          sectionTime: subPath.sectionTime || null,
+        });
+      } else if (trafficType === 1) {
+        // 지하철 구간
+        const laneList = subPath.lane || [];
+        const lineNames = laneList
+          .map(l => l.name || '')
+          .filter(Boolean)
+          .filter((v, i, arr) => arr.indexOf(v) === i);
+
+        transitDetail.push({
+          type: 'subway',
+          lines: lineNames.length > 0 ? lineNames : ['지하철'],
+          boardStation: firstStation.stationName || firstStation.name || '',
+          alightStation: lastStation.stationName || lastStation.name || '',
+          stationCount: stations.length,
+          sectionTime: subPath.sectionTime || null,
+        });
+      }
+    } else if (trafficType === 3) {
+      // 도보 구간
+      const walkSx = parseFloat(subPath.startX);
+      const walkSy = parseFloat(subPath.startY);
+      const walkEx = parseFloat(subPath.endX);
+      const walkEy = parseFloat(subPath.endY);
+      if (!isNaN(walkSx) && !isNaN(walkSy)) allCoords.push([walkSy, walkSx]);
+      if (!isNaN(walkEx) && !isNaN(walkEy)) allCoords.push([walkEy, walkEx]);
+
+      if (subPath.sectionTime > 0 || subPath.distance > 0) {
+        transitDetail.push({
+          type: 'walk',
+          lines: [],
+          boardStation: '',
+          alightStation: '',
+          stationCount: 0,
+          sectionTime: subPath.sectionTime || null,
+          distance: subPath.distance || null,
+        });
+      }
+    }
+  }
+
+  return { allCoords, info, transitDetail };
+};
+
+// 연속 중복 좌표 제거
+const dedup = (coords) =>
+  coords.filter((coord, i) => {
+    if (i === 0) return true;
+    const prev = coords[i - 1];
+    return coord[0] !== prev[0] || coord[1] !== prev[1];
+  });
+
 // ODsay 경로 검색 (대중교통: 버스+지하철)
 // GET /api/transit/route?sx=경도&sy=위도&ex=경도&ey=위도&mode=bus|subway
 // SearchPathType: 0=최적(혼합), 1=지하철, 2=버스
 // SearchType: 0=도시내, 1=도시간(광역) — 결과 없으면 광역으로 자동 폴백
+// 광역+도시내 연계: 두 지역을 경유하는 경우 중간 분할 탐색으로 구간 이어 붙임
 router.get('/route', async (req, res) => {
   try {
     const { sx, sy, ex, ey, mode } = req.query;
@@ -48,130 +160,90 @@ router.get('/route', async (req, res) => {
     if (mode === 'subway') searchPathType = 1; // 지하철 우선
     if (mode === 'bus') searchPathType = 2;    // 버스 우선
 
-    // 1차: 도시내(SearchType=0) 검색
-    let data = await callOdsay(sx, sy, ex, ey, 0, searchPathType);
+    // ── 1단계: 전체 구간 단일 검색 (도시내 → 광역 폴백) ──
+    const fullData = await callOdsayWithFallback(sx, sy, ex, ey, searchPathType);
 
-    // 도시내 결과 없거나 에러면 → 도시간(SearchType=1) 광역 검색으로 폴백
-    const hasResult = (d) => d?.result?.path && d.result.path.length > 0;
-    if (!hasResult(data)) {
-      console.log('ODsay 도시내 결과 없음 → 광역(SearchType=1) 재시도');
-      data = await callOdsay(sx, sy, ex, ey, 1, searchPathType);
+    if (fullData.error) {
+      console.error('ODsay API Error:', JSON.stringify(fullData.error));
+      return res.status(502).json({ message: 'ODsay API 호출 실패', error: fullData.error });
     }
 
-    if (data.error) {
-      console.error('ODsay API Error:', JSON.stringify(data.error));
-      return res.status(502).json({ message: 'ODsay API 호출 실패', error: data.error });
+    if (hasResult(fullData)) {
+      // 단일 검색으로 경로를 찾은 경우 바로 반환
+      const routeData = extractRouteData(fullData);
+      const coords = dedup(routeData.allCoords);
+      return res.json({
+        coords: coords.length >= 2 ? coords : null,
+        info: routeData.info,
+        transitDetail: routeData.transitDetail,
+      });
     }
 
-    const paths = data.result?.path;
-    if (!paths || paths.length === 0) {
+    // ── 2단계: 단일 검색 실패 → 중간 지점(pivot) 분할 탐색 ──
+    // 출발지와 도착지가 서로 다른 도시권에 걸쳐 있을 때
+    // (예: 서울역 → 오송역)
+    // → 출발지 도시 내 대중교통 + 도착지 도시 내 대중교통 두 구간으로 분리해 이어 붙인다
+    console.log('ODsay 전체 경로 없음 → 분할 탐색(pivot) 시도');
+
+    const sxNum = parseFloat(sx);
+    const syNum = parseFloat(sy);
+    const exNum = parseFloat(ex);
+    const eyNum = parseFloat(ey);
+
+    // pivot: 출발-도착 중간 좌표
+    const pivotX = ((sxNum + exNum) / 2).toFixed(6);
+    const pivotY = ((syNum + eyNum) / 2).toFixed(6);
+
+    // 출발 → pivot, pivot → 도착 병렬 검색
+    const [dataA, dataB] = await Promise.all([
+      callOdsayWithFallback(sx, sy, pivotX, pivotY, searchPathType),
+      callOdsayWithFallback(pivotX, pivotY, ex, ey, searchPathType),
+    ]);
+
+    const routeA = hasResult(dataA) ? extractRouteData(dataA) : null;
+    const routeB = hasResult(dataB) ? extractRouteData(dataB) : null;
+
+    if (!routeA && !routeB) {
+      // 분할 탐색도 실패 → 결과 없음 반환
+      console.log('ODsay 분할 탐색도 실패');
       return res.json({ coords: null, info: null, transitDetail: null });
     }
 
-    // 최적 경로 (첫 번째)
-    const bestPath = paths[0];
-    const info = {
-      totalTime: bestPath.info?.totalTime,         // 분
-      payment: bestPath.info?.payment,             // 원
-      totalDistance: bestPath.info?.totalDistance, // m
-      transferCount: bestPath.info?.transferCount, // 환승 횟수
-      busTransitCount: bestPath.info?.busTransitCount,
-      subwayTransitCount: bestPath.info?.subwayTransitCount,
+    // 두 구간 합산
+    const mergedCoords = [
+      ...(routeA?.allCoords || []),
+      ...(routeB?.allCoords || []),
+    ];
+
+    const mergedInfo = {
+      totalTime:
+        (routeA?.info?.totalTime ?? 0) + (routeB?.info?.totalTime ?? 0) || null,
+      payment:
+        (routeA?.info?.payment ?? 0) + (routeB?.info?.payment ?? 0) || null,
+      totalDistance:
+        (routeA?.info?.totalDistance ?? 0) + (routeB?.info?.totalDistance ?? 0) || null,
+      transferCount:
+        (routeA?.info?.transferCount ?? 0) + (routeB?.info?.transferCount ?? 0),
+      busTransitCount:
+        (routeA?.info?.busTransitCount ?? 0) + (routeB?.info?.busTransitCount ?? 0),
+      subwayTransitCount:
+        (routeA?.info?.subwayTransitCount ?? 0) + (routeB?.info?.subwayTransitCount ?? 0),
     };
 
-    // 구간별 좌표 + 환승 상세 정보 수집
-    // trafficType: 1=지하철, 2=버스, 3=도보
-    const allCoords = [];
-    const subPaths = bestPath.subPath || [];
-    const transitDetail = []; // 환승 구간별 정보 배열
+    const mergedTransitDetail = [
+      ...(routeA?.transitDetail || []),
+      ...(routeB?.transitDetail || []),
+    ];
 
-    for (const subPath of subPaths) {
-      const trafficType = subPath.trafficType;
-      const stations = subPath.passStopList?.stations;
+    const coords = dedup(mergedCoords);
+    console.log(`ODsay 분할 탐색 성공: A구간 ${routeA ? '✓' : '✗'}, B구간 ${routeB ? '✓' : '✗'}, 좌표 ${coords.length}개`);
 
-      if (stations && stations.length > 0) {
-        // 버스/지하철 구간: 정류장 좌표 사용
-        for (const st of stations) {
-          const x = parseFloat(st.x);
-          const y = parseFloat(st.y);
-          if (!isNaN(x) && !isNaN(y)) {
-            allCoords.push([y, x]); // Leaflet: [lat, lng]
-          }
-        }
-
-        // 환승 상세 정보 추출
-        const firstStation = stations[0];
-        const lastStation = stations[stations.length - 1];
-
-        if (trafficType === 2) {
-          // 버스 구간: lane 배열에서 버스번호 수집
-          const laneList = subPath.lane || [];
-          const busNos = laneList
-            .map(l => l.busNo || l.name || '')
-            .filter(Boolean)
-            .filter((v, i, arr) => arr.indexOf(v) === i); // 중복 제거
-
-          transitDetail.push({
-            type: 'bus',
-            lines: busNos.length > 0 ? busNos : ['버스'],
-            boardStation: firstStation.stationName || firstStation.name || '',
-            alightStation: lastStation.stationName || lastStation.name || '',
-            stationCount: stations.length,
-            sectionTime: subPath.sectionTime || null, // 분
-          });
-        } else if (trafficType === 1) {
-          // 지하철 구간: lane 배열에서 호선명 수집
-          const laneList = subPath.lane || [];
-          const lineNames = laneList
-            .map(l => l.name || '')
-            .filter(Boolean)
-            .filter((v, i, arr) => arr.indexOf(v) === i);
-
-          transitDetail.push({
-            type: 'subway',
-            lines: lineNames.length > 0 ? lineNames : ['지하철'],
-            boardStation: firstStation.stationName || firstStation.name || '',
-            alightStation: lastStation.stationName || lastStation.name || '',
-            stationCount: stations.length,
-            sectionTime: subPath.sectionTime || null, // 분
-          });
-        }
-      } else if (trafficType === 3) {
-        // 도보 구간: startX/Y, endX/Y 사용
-        const walkSx = parseFloat(subPath.startX);
-        const walkSy = parseFloat(subPath.startY);
-        const walkEx = parseFloat(subPath.endX);
-        const walkEy = parseFloat(subPath.endY);
-        if (!isNaN(walkSx) && !isNaN(walkSy)) allCoords.push([walkSy, walkSx]);
-        if (!isNaN(walkEx) && !isNaN(walkEy)) allCoords.push([walkEy, walkEx]);
-
-        // 도보 구간 정보 (환승 대기 이동 포함)
-        if (subPath.sectionTime > 0 || subPath.distance > 0) {
-          transitDetail.push({
-            type: 'walk',
-            lines: [],
-            boardStation: '',
-            alightStation: '',
-            stationCount: 0,
-            sectionTime: subPath.sectionTime || null, // 분
-            distance: subPath.distance || null, // m
-          });
-        }
-      }
-    }
-
-    // 중복 좌표 제거 (연속 동일 좌표)
-    const dedupedCoords = allCoords.filter((coord, i) => {
-      if (i === 0) return true;
-      const prev = allCoords[i - 1];
-      return coord[0] !== prev[0] || coord[1] !== prev[1];
+    return res.json({
+      coords: coords.length >= 2 ? coords : null,
+      info: mergedInfo,
+      transitDetail: mergedTransitDetail,
     });
 
-    res.json({
-      coords: dedupedCoords.length >= 2 ? dedupedCoords : null,
-      info,
-      transitDetail, // 환승 구간별 상세 정보
-    });
   } catch (error) {
     console.error('Transit route error:', error.message);
     res.status(500).json({ message: '대중교통 경로 조회 실패', error: error.message });

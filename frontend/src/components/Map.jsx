@@ -210,8 +210,6 @@ const FitBounds = ({ places }) => {
 
 const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
   const [routeSegments, setRouteSegments] = useState([]);
-  const [autoOpenIdx, setAutoOpenIdx] = useState(null); // 자동으로 Popup 열 세그먼트 인덱스
-  const polylineRefs = useRef({}); // 세그먼트별 Polyline ref
   const abortRef = useRef(null);
 
   // places가 바뀔 때마다 경로 계산
@@ -288,8 +286,6 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
 
       if (!thisRequest.cancelled) {
         setRouteSegments(segments);
-        // 마지막으로 추가된 세그먼트(가장 최근 구간)의 Popup 자동 오픈
-        setAutoOpenIdx(segments.length - 1);
         // 전체 소요시간/거리 합계 + 세그먼트 목록을 부모에게 전달
         if (onRouteUpdate) {
           const totalTime = segments.reduce((sum, s) => sum + (s.time || 0), 0);
@@ -298,10 +294,6 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
         }
       }
     };
-
-    // 새 places가 들어오면 자동 Popup 초기화
-    setAutoOpenIdx(null);
-    polylineRefs.current = {};
 
     // 즉시 직선으로 표시 후, 비동기로 도로 경로 업데이트
     const quickSegments = [];
@@ -325,24 +317,6 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
     buildSegments();
   }, [places]);
 
-  // autoOpenIdx가 바뀌면 해당 폴리라인의 Popup 자동 오픈
-  useEffect(() => {
-    if (autoOpenIdx === null) return;
-    const polyline = polylineRefs.current[autoOpenIdx];
-    if (polyline) {
-      // 폴리라인 중간 지점에서 Popup 열기
-      try {
-        const latlngs = polyline.getLatLngs();
-        if (latlngs && latlngs.length > 0) {
-          const mid = latlngs[Math.floor(latlngs.length / 2)];
-          polyline.openPopup(mid);
-        }
-      } catch (e) {
-        // 무시
-      }
-    }
-  }, [autoOpenIdx, routeSegments]);
-
   return (
     <div className="w-full h-full relative" ref={mapContainerRef}>
       <MapContainer
@@ -363,7 +337,6 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
           <Polyline
             key={`route-${i}-${seg.positions.length}`}
             positions={seg.positions}
-            ref={(el) => { if (el) polylineRefs.current[i] = el; }}
             pathOptions={{
               color: seg.style.color,
               weight: seg.style.weight,
