@@ -21,6 +21,7 @@ const Dashboard = () => {
   const [showPlanList, setShowPlanList] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [routeInfo, setRouteInfo] = useState(null);
+  const [routeSegments, setRouteSegments] = useState([]); // 구간별 소요시간/거리/환승정보
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [shareToast, setShareToast] = useState('');
   const [mobileTab, setMobileTab] = useState('map'); // 'map' | 'list'
@@ -458,7 +459,14 @@ const Dashboard = () => {
         <div className={`bg-gray-200 relative ${
           mobileTab === 'map' ? 'flex-1' : 'hidden'
         } md:block md:w-3/5`}>
-          <Map places={places} onRouteUpdate={setRouteInfo} mapContainerRef={mapContainerRef} />
+          <Map
+            places={places}
+            onRouteUpdate={({ totalTime, totalDistance, segments }) => {
+              setRouteInfo({ totalTime, totalDistance });
+              setRouteSegments(segments || []);
+            }}
+            mapContainerRef={mapContainerRef}
+          />
         </div>
 
         {/* 사이드바 */}
@@ -501,6 +509,7 @@ const Dashboard = () => {
               <div className="flex-1 overflow-y-auto p-3">
                 <PlaceList
                   places={places}
+                  routeSegments={routeSegments}
                   onReorder={handleReorder}
                   onToggleCheck={handleToggleCheck}
                   onDelete={handleDelete}

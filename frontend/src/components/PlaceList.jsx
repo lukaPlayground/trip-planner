@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { FaGripVertical, FaTrash, FaCheck, FaWalking, FaBicycle, FaMotorcycle, FaBus, FaSubway, FaTrain, FaCar, FaTaxi, FaShip, FaPlane, FaTicketAlt, FaChevronRight } from 'react-icons/fa';
+import { FaGripVertical, FaTrash, FaCheck, FaWalking, FaBicycle, FaMotorcycle, FaBus, FaSubway, FaTrain, FaCar, FaTaxi, FaShip, FaPlane, FaTicketAlt, FaChevronRight, FaChevronDown, FaExchangeAlt } from 'react-icons/fa';
 
 // 예약 가능 여부 포함
 const TRANSPORT_OPTIONS = [
@@ -86,7 +86,105 @@ const TransportRow = ({ place, index, currentTransport, isReservable, onUpdateTr
   );
 };
 
-const PlaceList = ({ places, onReorder, onToggleCheck, onDelete, onUpdateNote, onUpdateTransport, onUpdateReservation }) => {
+// 구간 소요시간 포맷 (초 단위)
+const formatSegTime = (secs) => {
+  if (!secs && secs !== 0) return null;
+  if (secs >= 3600) return `${Math.floor(secs / 3600)}시간 ${Math.round((secs % 3600) / 60)}분`;
+  return `${Math.round(secs / 60)}분`;
+};
+
+// 대중교통 환승 패널 컴포넌트
+const TransitDetailPanel = ({ transitDetail }) => {
+  if (!transitDetail || transitDetail.length === 0) return null;
+
+  return (
+    <div className="mt-2 rounded-lg border border-blue-100 bg-blue-50 overflow-hidden">
+      {transitDetail.map((d, i) => {
+        if (d.type === 'walk') {
+          return (
+            <div key={i} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-400 border-t border-blue-100 first:border-t-0">
+              <FaWalking size={10} className="flex-shrink-0" />
+              <span>도보{d.sectionTime ? ` ${d.sectionTime}분` : ''}{d.distance ? ` (${d.distance}m)` : ''}</span>
+            </div>
+          );
+        }
+
+        const isBus = d.type === 'bus';
+        const Icon = isBus ? FaBus : FaSubway;
+        const lineColor = isBus ? '#3b82f6' : '#6366f1';
+        const bgColor = isBus ? '#eff6ff' : '#eef2ff';
+
+        return (
+          <div key={i} className="px-3 py-2 border-t border-blue-100 first:border-t-0" style={{ background: bgColor }}>
+            {/* 노선명 배지 + 소요시간 */}
+            <div className="flex items-center gap-1.5 flex-wrap mb-1">
+              {d.lines.map((line, li) => (
+                <span key={li} className="inline-flex items-center gap-1 text-white text-xs font-bold px-2 py-0.5 rounded"
+                  style={{ background: lineColor }}>
+                  <Icon size={9} />
+                  {line}
+                </span>
+              ))}
+              {d.sectionTime && (
+                <span className="text-xs text-gray-400">{d.sectionTime}분</span>
+              )}
+              {d.stationCount > 0 && (
+                <span className="text-xs text-gray-400">({d.stationCount}정류장)</span>
+              )}
+            </div>
+            {/* 승차 → 하차 정류장 */}
+            {d.boardStation && (
+              <div className="flex items-center gap-1 text-xs text-gray-600 flex-wrap">
+                <span className="font-medium text-green-600">승차</span>
+                <span className="truncate max-w-[80px]">{d.boardStation}</span>
+                {d.alightStation && d.alightStation !== d.boardStation && (
+                  <>
+                    <FaChevronRight size={8} className="text-gray-300 flex-shrink-0" />
+                    <span className="font-medium text-red-500">하차</span>
+                    <span className="truncate max-w-[80px]">{d.alightStation}</span>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// 구간 소요시간/거리 요약 + 환승 정보 토글 컴포넌트
+const SegmentInfo = ({ segTimeStr, segDistStr, transportColor, transitDetail, hasTransitDetail }) => {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="mt-1.5">
+      {/* 요약 바: 소요시간 · 거리 · 환승정보 토글 */}
+      <div className="flex items-center gap-2 text-xs text-gray-400">
+        {segTimeStr && (
+          <span style={{ color: transportColor }} className="font-medium">{segTimeStr}</span>
+        )}
+        {segDistStr && <span>{segDistStr}</span>}
+        {hasTransitDetail && (
+          <button
+            onClick={() => setOpen(v => !v)}
+            className="flex items-center gap-0.5 ml-auto text-blue-400 hover:text-blue-600 transition-colors"
+          >
+            <FaExchangeAlt size={9} />
+            <span>환승정보</span>
+            {open ? <FaChevronDown size={8} /> : <FaChevronRight size={8} />}
+          </button>
+        )}
+      </div>
+      {/* 환승 상세 패널 */}
+      {open && hasTransitDetail && (
+        <TransitDetailPanel transitDetail={transitDetail} />
+      )}
+    </div>
+  );
+};
+
+const PlaceList = ({ places, routeSegments = [], onReorder, onToggleCheck, onDelete, onUpdateNote, onUpdateTransport, onUpdateReservation }) => {
   const handleDragEnd = (result) => {
     if (!result.destination) return;
 
@@ -126,6 +224,13 @@ const PlaceList = ({ places, onReorder, onToggleCheck, onDelete, onUpdateNote, o
               const currentTransport = place.transport || 'bus';
               const transportOpt = getTransportOption(currentTransport);
               const isReservable = transportOpt?.reservable;
+
+              // 이 장소로 오는 구간 정보 (index-1번 세그먼트)
+              // routeSegments[i]는 places[i] → places[i+1] 구간
+              const seg = index > 0 ? routeSegments[index - 1] : null;
+              const segTimeStr = seg?.time != null ? formatSegTime(seg.time) : null;
+              const segDistStr = seg?.distance != null ? `${seg.distance.toFixed(1)}km` : null;
+              const hasTransitDetail = seg?.transitDetail && seg.transitDetail.length > 0;
 
               return (
                 <Draggable
@@ -192,6 +297,17 @@ const PlaceList = ({ places, onReorder, onToggleCheck, onDelete, onUpdateNote, o
                             onUpdateTransport={onUpdateTransport}
                             onUpdateReservation={onUpdateReservation}
                           />
+
+                          {/* 구간 소요시간/거리 요약 + 환승 정보 토글 */}
+                          {(segTimeStr || segDistStr || hasTransitDetail) && (
+                            <SegmentInfo
+                              segTimeStr={segTimeStr}
+                              segDistStr={segDistStr}
+                              transportColor={transportOpt?.color || '#3b82f6'}
+                              transitDetail={seg?.transitDetail}
+                              hasTransitDetail={hasTransitDetail}
+                            />
+                          )}
 
                           {isReservable && (
                             <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg">

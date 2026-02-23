@@ -50,21 +50,25 @@ router.get('/route', async (req, res) => {
 
     const paths = data.result?.path;
     if (!paths || paths.length === 0) {
-      return res.json({ coords: null, info: null });
+      return res.json({ coords: null, info: null, transitDetail: null });
     }
 
     // 최적 경로 (첫 번째)
     const bestPath = paths[0];
     const info = {
-      totalTime: bestPath.info?.totalTime,       // 분
-      payment: bestPath.info?.payment,           // 원
+      totalTime: bestPath.info?.totalTime,         // 분
+      payment: bestPath.info?.payment,             // 원
       totalDistance: bestPath.info?.totalDistance, // m
+      transferCount: bestPath.info?.transferCount, // 환승 횟수
+      busTransitCount: bestPath.info?.busTransitCount,
+      subwayTransitCount: bestPath.info?.subwayTransitCount,
     };
 
-    // 구간별 좌표 수집
+    // 구간별 좌표 + 환승 상세 정보 수집
     // trafficType: 1=지하철, 2=버스, 3=도보
     const allCoords = [];
     const subPaths = bestPath.subPath || [];
+    const transitDetail = []; // 환승 구간별 정보 배열
 
     for (const subPath of subPaths) {
       const trafficType = subPath.trafficType;
@@ -79,14 +83,65 @@ router.get('/route', async (req, res) => {
             allCoords.push([y, x]); // Leaflet: [lat, lng]
           }
         }
+
+        // 환승 상세 정보 추출
+        const firstStation = stations[0];
+        const lastStation = stations[stations.length - 1];
+
+        if (trafficType === 2) {
+          // 버스 구간: lane 배열에서 버스번호 수집
+          const laneList = subPath.lane || [];
+          const busNos = laneList
+            .map(l => l.busNo || l.name || '')
+            .filter(Boolean)
+            .filter((v, i, arr) => arr.indexOf(v) === i); // 중복 제거
+
+          transitDetail.push({
+            type: 'bus',
+            lines: busNos.length > 0 ? busNos : ['버스'],
+            boardStation: firstStation.stationName || firstStation.name || '',
+            alightStation: lastStation.stationName || lastStation.name || '',
+            stationCount: stations.length,
+            sectionTime: subPath.sectionTime || null, // 분
+          });
+        } else if (trafficType === 1) {
+          // 지하철 구간: lane 배열에서 호선명 수집
+          const laneList = subPath.lane || [];
+          const lineNames = laneList
+            .map(l => l.name || '')
+            .filter(Boolean)
+            .filter((v, i, arr) => arr.indexOf(v) === i);
+
+          transitDetail.push({
+            type: 'subway',
+            lines: lineNames.length > 0 ? lineNames : ['지하철'],
+            boardStation: firstStation.stationName || firstStation.name || '',
+            alightStation: lastStation.stationName || lastStation.name || '',
+            stationCount: stations.length,
+            sectionTime: subPath.sectionTime || null, // 분
+          });
+        }
       } else if (trafficType === 3) {
         // 도보 구간: startX/Y, endX/Y 사용
-        const sx = parseFloat(subPath.startX);
-        const sy = parseFloat(subPath.startY);
-        const ex = parseFloat(subPath.endX);
-        const ey = parseFloat(subPath.endY);
-        if (!isNaN(sx) && !isNaN(sy)) allCoords.push([sy, sx]);
-        if (!isNaN(ex) && !isNaN(ey)) allCoords.push([ey, ex]);
+        const walkSx = parseFloat(subPath.startX);
+        const walkSy = parseFloat(subPath.startY);
+        const walkEx = parseFloat(subPath.endX);
+        const walkEy = parseFloat(subPath.endY);
+        if (!isNaN(walkSx) && !isNaN(walkSy)) allCoords.push([walkSy, walkSx]);
+        if (!isNaN(walkEx) && !isNaN(walkEy)) allCoords.push([walkEy, walkEx]);
+
+        // 도보 구간 정보 (환승 대기 이동 포함)
+        if (subPath.sectionTime > 0 || subPath.distance > 0) {
+          transitDetail.push({
+            type: 'walk',
+            lines: [],
+            boardStation: '',
+            alightStation: '',
+            stationCount: 0,
+            sectionTime: subPath.sectionTime || null, // 분
+            distance: subPath.distance || null, // m
+          });
+        }
       }
     }
 
@@ -100,6 +155,7 @@ router.get('/route', async (req, res) => {
     res.json({
       coords: dedupedCoords.length >= 2 ? dedupedCoords : null,
       info,
+      transitDetail, // 환승 구간별 상세 정보
     });
   } catch (error) {
     console.error('Transit route error:', error.message);

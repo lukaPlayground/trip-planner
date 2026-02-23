@@ -49,7 +49,9 @@ const fetchTransitRoute = async (fromLat, fromLng, toLat, toLng, mode = 'bus') =
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
 
-    const result = data.coords ? { coords: data.coords, info: data.info } : null;
+    const result = data.coords
+      ? { coords: data.coords, info: data.info, transitDetail: data.transitDetail }
+      : null;
     transitCache[cacheKey] = result;
     return result;
   } catch (error) {
@@ -214,6 +216,7 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
         let isRealRoute = false;
         let segTime = null;
         let segDistance = null;
+        let transitDetail = null;
 
         if (costing) {
           // 도로 기반 교통수단 → Valhalla에서 교통수단별 실제 경로 가져오기
@@ -234,6 +237,8 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
             segTime = transitResult.info.totalTime ? transitResult.info.totalTime * 60 : null;
             segDistance = transitResult.info.totalDistance ? transitResult.info.totalDistance / 1000 : null;
           }
+          // 환승 상세 정보
+          transitDetail = transitResult?.transitDetail || null;
         } else {
           // 기차, 배, 비행기 → 직선
           positions = [[from.lat, from.lng], [to.lat, to.lng]];
@@ -248,16 +253,17 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
           isRoadRoute: isRealRoute,
           time: segTime,
           distance: segDistance,
+          transitDetail, // 대중교통 환승 상세 (버스번호, 호선, 승하차 정류장)
         });
       }
 
       if (!thisRequest.cancelled) {
         setRouteSegments(segments);
-        // 전체 소요시간/거리 합계를 부모에게 전달
+        // 전체 소요시간/거리 합계 + 세그먼트 목록을 부모에게 전달
         if (onRouteUpdate) {
           const totalTime = segments.reduce((sum, s) => sum + (s.time || 0), 0);
           const totalDistance = segments.reduce((sum, s) => sum + (s.distance || 0), 0);
-          onRouteUpdate({ totalTime, totalDistance });
+          onRouteUpdate({ totalTime, totalDistance, segments });
         }
       }
     };
@@ -313,23 +319,80 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
               lineJoin: 'round',
             }}
           >
-            <Popup>
-              <div className="text-sm">
-                <strong>{seg.from}</strong> → <strong>{seg.to}</strong>
-                <br />
-                <span style={{ color: seg.style.color }}>
-                  {seg.style.pattern} {seg.style.label}
-                </span>
-                {seg.distance != null && (
-                  <span className="text-gray-500"> · {seg.distance.toFixed(1)}km</span>
-                )}
-                {seg.time != null && (
-                  <span className="text-gray-500">
-                    {' · '}
-                    {seg.time >= 3600
-                      ? `${Math.floor(seg.time / 3600)}시간 ${Math.round((seg.time % 3600) / 60)}분`
-                      : `${Math.round(seg.time / 60)}분`}
-                  </span>
+            <Popup minWidth={200}>
+              <div style={{ fontSize: '13px', lineHeight: '1.6', maxWidth: '260px' }}>
+                {/* 출발 → 도착 헤더 */}
+                <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                  {seg.from} → {seg.to}
+                </div>
+                {/* 이동수단 + 거리 + 시간 요약 */}
+                <div style={{ color: seg.style.color, marginBottom: '4px' }}>
+                  {seg.style.label}
+                  {seg.distance != null && (
+                    <span style={{ color: '#6b7280' }}> · {seg.distance.toFixed(1)}km</span>
+                  )}
+                  {seg.time != null && (
+                    <span style={{ color: '#6b7280' }}>
+                      {' · '}
+                      {seg.time >= 3600
+                        ? `${Math.floor(seg.time / 3600)}시간 ${Math.round((seg.time % 3600) / 60)}분`
+                        : `${Math.round(seg.time / 60)}분`}
+                    </span>
+                  )}
+                </div>
+                {/* 대중교통 환승 상세 */}
+                {seg.transitDetail && seg.transitDetail.length > 0 && (
+                  <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '6px', marginTop: '4px' }}>
+                    {seg.transitDetail.map((d, di) => {
+                      if (d.type === 'walk') {
+                        return (
+                          <div key={di} style={{ color: '#9ca3af', fontSize: '11px', margin: '3px 0' }}>
+                            🚶 도보
+                            {d.sectionTime ? ` ${d.sectionTime}분` : ''}
+                            {d.distance ? ` (${d.distance}m)` : ''}
+                          </div>
+                        );
+                      }
+                      const icon = d.type === 'bus' ? '🚌' : '🚇';
+                      const lineColor = d.type === 'bus' ? '#3b82f6' : '#6366f1';
+                      return (
+                        <div key={di} style={{ margin: '4px 0' }}>
+                          {/* 노선명 뱃지 */}
+                          <div style={{ marginBottom: '2px' }}>
+                            {d.lines.map((line, li) => (
+                              <span key={li} style={{
+                                display: 'inline-block',
+                                background: lineColor,
+                                color: 'white',
+                                fontSize: '11px',
+                                fontWeight: 'bold',
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                marginRight: '3px',
+                              }}>
+                                {icon} {line}
+                              </span>
+                            ))}
+                            {d.sectionTime && (
+                              <span style={{ fontSize: '11px', color: '#9ca3af' }}>{d.sectionTime}분</span>
+                            )}
+                          </div>
+                          {/* 승차 → 하차 */}
+                          {d.boardStation && (
+                            <div style={{ fontSize: '11px', color: '#374151' }}>
+                              <span style={{ color: '#10b981', fontWeight: 'bold' }}>승차</span> {d.boardStation}
+                              {d.stationCount > 2 && (
+                                <span style={{ color: '#9ca3af' }}> → ({d.stationCount - 2}개 정류장) → </span>
+                              )}
+                              {d.alightStation && d.alightStation !== d.boardStation && (
+                                <> <span style={{ color: '#ef4444', fontWeight: 'bold' }}>하차</span> {d.alightStation}</>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             </Popup>
