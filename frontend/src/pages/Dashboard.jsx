@@ -203,11 +203,12 @@ const Dashboard = () => {
     setTimeout(() => setShareToast(''), 3500);
   };
 
-  // 내보내기 훅
+  // 내보내기 훅 (routeSegments: 구간별 시간/거리/환승정보/유료도로 — PDF에 포함)
   const exportHelper = useExport({
     plan: currentPlan,
     places,
     routeInfo,
+    routeSegments,
     mapContainerRef,
   });
 

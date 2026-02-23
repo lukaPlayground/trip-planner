@@ -2,16 +2,119 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Map from '../components/Map';
 
+// subway→bus, taxi→car 레거시 호환 (PlaceList/ExportButton과 동일 정책)
+const normalizeTransport = (t) =>
+  t === 'subway' ? 'bus' : t === 'taxi' ? 'car' : (t || 'bus');
+
 const TRANSPORT_LABELS = {
   walk: '도보', bicycle: '자전거', motorcycle: '바이크',
-  bus: '버스', subway: '지하철', train: '기차',
-  car: '자차', taxi: '택시', ship: '배', plane: '비행기',
+  bus: '대중교통', train: '기차',
+  car: '자동차', ship: '배', plane: '비행기',
 };
 
 const TRANSPORT_COLORS = {
   walk: '#10b981', bicycle: '#34d399', motorcycle: '#a855f7',
-  bus: '#3b82f6', subway: '#6366f1', train: '#8b5cf6',
-  car: '#f97316', taxi: '#eab308', ship: '#06b6d4', plane: '#ec4899',
+  bus: '#3b82f6', train: '#8b5cf6',
+  car: '#f97316', ship: '#06b6d4', plane: '#ec4899',
+};
+
+const formatTime = (seconds) => {
+  if (!seconds) return '';
+  if (seconds >= 3600) {
+    return `${Math.floor(seconds / 3600)}시간 ${Math.round((seconds % 3600) / 60)}분`;
+  }
+  return `${Math.round(seconds / 60)}분`;
+};
+
+// 환승 상세 컴포넌트 (대중교통 구간용)
+const TransitDetail = ({ transitDetail }) => {
+  if (!transitDetail || transitDetail.length === 0) return null;
+  return (
+    <div className="mt-1.5 rounded-lg border border-blue-100 bg-blue-50 overflow-hidden">
+      {transitDetail.map((d, i) => {
+        if (d.type === 'walk') {
+          return (
+            <div key={i} className="flex items-center gap-1.5 px-3 py-1 text-xs text-gray-400 border-t border-blue-100 first:border-t-0">
+              <span>🚶</span>
+              <span>도보{d.sectionTime ? ` ${d.sectionTime}분` : ''}{d.distance ? ` (${d.distance}m)` : ''}</span>
+            </div>
+          );
+        }
+        const isBus = d.type === 'bus';
+        const lineColor = isBus ? '#3b82f6' : '#6366f1';
+        const icon = isBus ? '🚌' : '🚇';
+        const lines = (d.lines || []).join(', ') || (isBus ? '버스' : '지하철');
+        return (
+          <div key={i} className="px-3 py-1.5 border-t border-blue-100 first:border-t-0">
+            <div className="flex items-center gap-1 flex-wrap text-xs">
+              <span>{icon}</span>
+              <span className="font-bold" style={{ color: lineColor }}>{lines}</span>
+              {d.sectionTime && <span className="text-gray-400">{d.sectionTime}분</span>}
+              {d.stationCount > 0 && <span className="text-gray-400">({d.stationCount}정류장)</span>}
+            </div>
+            {d.boardStation && d.alightStation && d.boardStation !== d.alightStation && (
+              <div className="text-xs text-gray-500 mt-0.5">
+                <span className="text-green-600 font-medium">승차</span> {d.boardStation}
+                {' → '}
+                <span className="text-red-500 font-medium">하차</span> {d.alightStation}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// 구간 카드 컴포넌트 (장소 사이 이동 정보)
+const SegmentCard = ({ place, seg }) => {
+  const transport = normalizeTransport(place.transport);
+  const label = TRANSPORT_LABELS[transport] || transport;
+  const color = TRANSPORT_COLORS[transport] || '#3b82f6';
+
+  const timeStr = seg?.time != null ? formatTime(seg.time) : null;
+  const distStr = seg?.distance != null ? `${Number(seg.distance).toFixed(1)}km` : null;
+  const hasToll = transport === 'car' && seg?.hasToll === true;
+  const hasTransit = seg?.transitDetail && seg.transitDetail.length > 0;
+
+  return (
+    <div className="relative flex items-stretch px-1 my-0.5">
+      {/* 세로 연결선 */}
+      <div className="flex flex-col items-center mr-2" style={{ width: '28px' }}>
+        <div className="w-0.5 flex-1" style={{ backgroundColor: color, opacity: 0.25 }} />
+      </div>
+
+      {/* 카드 */}
+      <div
+        className="flex-1 py-2 px-3 rounded-xl border bg-white shadow-sm"
+        style={{ borderColor: color + '40', borderLeftColor: color, borderLeftWidth: '3px' }}
+      >
+        {/* 이동수단 레이블 */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs font-semibold" style={{ color }}>→ {label}으로 이동</span>
+          {timeStr && (
+            <span className="text-xs font-bold" style={{ color }}>{timeStr}</span>
+          )}
+          {distStr && (
+            <span className="text-xs text-gray-400">{distStr}</span>
+          )}
+          {hasToll && (
+            <span className="text-xs text-amber-600">🛣️ 유료도로 포함</span>
+          )}
+        </div>
+
+        {/* 예약 정보 */}
+        {place.reservation && (
+          <div className="text-xs text-amber-600 mt-1">🎫 {place.reservation}</div>
+        )}
+
+        {/* 환승 상세 (대중교통) */}
+        {hasTransit && (
+          <TransitDetail transitDetail={seg.transitDetail} />
+        )}
+      </div>
+    </div>
+  );
 };
 
 const SharedPlan = () => {
@@ -21,6 +124,7 @@ const SharedPlan = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [routeInfo, setRouteInfo] = useState(null);
+  const [routeSegments, setRouteSegments] = useState([]);
 
   useEffect(() => {
     const fetchPlan = async () => {
@@ -41,14 +145,6 @@ const SharedPlan = () => {
     };
     fetchPlan();
   }, [id]);
-
-  const formatTime = (seconds) => {
-    if (!seconds) return '';
-    if (seconds >= 3600) {
-      return `${Math.floor(seconds / 3600)}시간 ${Math.round((seconds % 3600) / 60)}분`;
-    }
-    return `${Math.round(seconds / 60)}분`;
-  };
 
   if (loading) {
     return (
@@ -96,15 +192,23 @@ const SharedPlan = () => {
       <div className="flex-1 flex overflow-hidden">
         {/* 지도 */}
         <div className="w-3/5 bg-gray-200 relative">
-          <Map places={places} onRouteUpdate={setRouteInfo} />
+          <Map
+            places={places}
+            onRouteUpdate={({ totalTime, totalDistance, segments }) => {
+              setRouteInfo({ totalTime, totalDistance });
+              setRouteSegments(segments || []);
+            }}
+          />
         </div>
 
         {/* 장소 목록 */}
         <div className="w-2/5 flex flex-col bg-gray-50 border-l border-gray-200 overflow-y-auto">
           {/* 요약 정보 */}
           <div className="p-4 border-b border-gray-200 bg-white sticky top-0 z-10">
-            <p className="text-sm text-gray-500 mt-1">{plan.description}</p>
-            <div className="flex gap-3 mt-2 text-sm flex-wrap">
+            {plan.description && (
+              <p className="text-sm text-gray-500 mt-0.5 mb-1">{plan.description}</p>
+            )}
+            <div className="flex gap-3 mt-1 text-sm flex-wrap">
               <span className="text-gray-500">장소 {places.length}개</span>
               {places.length > 0 && (
                 <span className="text-green-600">완료 {checkedCount}/{places.length}</span>
@@ -126,46 +230,46 @@ const SharedPlan = () => {
             )}
           </div>
 
-          {/* 장소 리스트 (읽기 전용) */}
-          <div className="p-4 space-y-3">
-            {places.map((place) => {
-              const color = TRANSPORT_COLORS[place.transport] || '#3b82f6';
-              const label = TRANSPORT_LABELS[place.transport] || '';
+          {/* 장소 + 구간 리스트 (읽기 전용) */}
+          <div className="p-3 space-y-0">
+            {places.map((place, idx) => {
+              const transport = normalizeTransport(place.transport);
+              const color = TRANSPORT_COLORS[transport] || '#3b82f6';
+              const label = TRANSPORT_LABELS[transport] || '';
+              // 이 장소로 오는 구간 (idx-1번 세그먼트)
+              const seg = idx > 0 ? routeSegments[idx - 1] : null;
+
               return (
-                <div
-                  key={place._id || place.order}
-                  className={`bg-white rounded-lg p-3 shadow-sm border border-gray-100 ${place.checked ? 'opacity-50' : ''}`}
-                >
-                  <div className="flex items-start gap-3">
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0 border-2 border-white shadow"
-                      style={{ background: place.checked ? '#9ca3af' : color }}
-                    >
-                      {place.order}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className={`font-semibold text-gray-800 text-sm ${place.checked ? 'line-through' : ''}`}>
-                        {place.name}
+                <div key={place._id || place.order}>
+                  {/* 구간 카드 (첫 장소 제외) */}
+                  {idx > 0 && place.transport && (
+                    <SegmentCard place={place} seg={seg} />
+                  )}
+
+                  {/* 장소 카드 */}
+                  <div
+                    className={`bg-white rounded-lg p-3 shadow-sm border border-gray-100 ${place.checked ? 'opacity-50' : ''}`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0 border-2 border-white shadow"
+                        style={{ background: place.checked ? '#9ca3af' : color }}
+                      >
+                        {place.order}
                       </div>
-                      <div className="text-xs text-gray-400 mt-0.5 truncate">{place.address}</div>
-                      {label && (
-                        <span
-                          className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-medium"
-                          style={{ background: `${color}20`, color }}
-                        >
-                          → {label}
-                        </span>
-                      )}
-                      {place.reservation && (
-                        <div className="text-xs text-amber-600 mt-1">🎫 {place.reservation}</div>
-                      )}
-                      {place.note && (
-                        <div className="text-xs text-gray-400 mt-1">📝 {place.note}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className={`font-semibold text-gray-800 text-sm ${place.checked ? 'line-through' : ''}`}>
+                          {place.name}
+                        </div>
+                        <div className="text-xs text-gray-400 mt-0.5 truncate">{place.address}</div>
+                        {place.note && (
+                          <div className="text-xs text-gray-400 mt-1">📝 {place.note}</div>
+                        )}
+                      </div>
+                      {place.checked && (
+                        <span className="text-green-500 text-lg">✓</span>
                       )}
                     </div>
-                    {place.checked && (
-                      <span className="text-green-500 text-lg">✓</span>
-                    )}
                   </div>
                 </div>
               );
