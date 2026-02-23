@@ -17,42 +17,118 @@ const TRANSPORT_STYLES = {
   plane:      { color: '#ec4899', dashArray: '20, 14',        weight: 4, label: '비행기',  pattern: '── ──' },
 };
 
-// 교통수단 → OSRM 프로파일 매핑
-// ship, plane은 직선 (라우팅 불필요)
-const OSRM_PROFILE_MAP = {
-  walk: 'foot',
-  bicycle: 'bike',
-  motorcycle: 'car',
-  bus: 'car',
-  subway: 'foot',    // 지하철은 도로 위에 정확히 매핑이 안 되므로 foot으로
-  train: 'car',      // 기차역 간 도로 경로로 근사
-  car: 'car',
-  taxi: 'car',
-  ship: null,         // 직선
-  plane: null,        // 직선
+// 교통수단 → Valhalla costing 매핑
+// null = 직선 또는 별도 API 사용
+const VALHALLA_COSTING_MAP = {
+  walk:       'pedestrian',   // 보도 우선, 자동차전용도로 진입 불가
+  bicycle:    'bicycle',      // 자전거도로 우선, 고속도로/자동차전용도로 진입 불가
+  motorcycle: 'motor_scooter',// 이륜차 경로, 자동차전용도로 자동 회피
+  bus:        null,           // ODsay 대중교통 API 사용
+  subway:     null,           // ODsay 대중교통 API 사용
+  train:      null,           // 고정 철도 노선 → 직선
+  car:        'auto',         // 일반 차량 최적 경로
+  taxi:       'auto',         // 일반 차량 최적 경로
+  ship:       null,           // 해상 경로 → 직선
+  plane:      null,           // 항공 경로 → 직선
 };
 
-// OSRM 경로 캐시 (세션 동안 유지)
+// ODsay API로 대중교통 경로를 가져오는 함수
+// bus/subway 교통수단에 사용 (mode: 'bus'=버스우선, 'subway'=지하철우선)
+const transitCache = {};
+
+const fetchTransitRoute = async (fromLat, fromLng, toLat, toLng, mode = 'bus') => {
+  const cacheKey = `transit-${mode}-${fromLat},${fromLng}-${toLat},${toLng}`;
+  if (transitCache[cacheKey] !== undefined) return transitCache[cacheKey];
+
+  try {
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+    // ODsay는 경도(X), 위도(Y) 순서
+    const url = `${apiBase}/transit/route?sx=${fromLng}&sy=${fromLat}&ex=${toLng}&ey=${toLat}&mode=${mode}`;
+    const response = await fetch(url);
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+
+    const result = data.coords ? { coords: data.coords, info: data.info } : null;
+    transitCache[cacheKey] = result;
+    return result;
+  } catch (error) {
+    console.warn('ODsay 경로 요청 실패:', error.message);
+    transitCache[cacheKey] = null;
+    return null;
+  }
+};
+
+// Valhalla polyline6 디코딩 (precision=6)
+// Valhalla는 GeoJSON 대신 인코딩된 polyline으로 shape를 반환한다
+const decodePolyline6 = (encoded) => {
+  const inv = 1e6;
+  const coords = [];
+  let index = 0, lat = 0, lng = 0;
+
+  while (index < encoded.length) {
+    for (let i = 0; i < 2; i++) {
+      let shift = 0, result = 0, byte;
+      do {
+        byte = encoded.charCodeAt(index++) - 63;
+        result |= (byte & 0x1f) << shift;
+        shift += 5;
+      } while (byte >= 0x20);
+      const delta = result & 1 ? ~(result >> 1) : result >> 1;
+      if (i === 0) lat += delta;
+      else lng += delta;
+    }
+    coords.push([lat / inv, lng / inv]); // Leaflet [lat, lng]
+  }
+  return coords;
+};
+
+// 경로 캐시 (세션 동안 유지)
 const routeCache = {};
 
-// OSRM 데모 서버에서 실제 도로 경로 좌표를 가져오는 함수
-const fetchRoute = async (fromLat, fromLng, toLat, toLng, profile) => {
-  const cacheKey = `${fromLat},${fromLng}-${toLat},${toLng}-${profile}`;
+// Valhalla 공개 서버에서 교통수단별 실제 도로 경로를 가져오는 함수
+// 반환: { coords: [[lat,lng],...], time: 초, distance: km } 또는 null
+const fetchRoute = async (fromLat, fromLng, toLat, toLng, costing) => {
+  const cacheKey = `${fromLat},${fromLng}-${toLat},${toLng}-${costing}`;
   if (routeCache[cacheKey]) return routeCache[cacheKey];
 
   try {
-    const url = `https://router.project-osrm.org/route/v1/${profile}/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=geojson`;
-    const response = await fetch(url);
-    const data = await response.json();
+    const body = JSON.stringify({
+      locations: [
+        { lat: fromLat, lon: fromLng },
+        { lat: toLat,   lon: toLng   },
+      ],
+      costing,
+      directions_options: { units: 'km' },
+    });
 
-    if (data.code === 'Ok' && data.routes?.[0]?.geometry?.coordinates) {
-      // GeoJSON은 [lng, lat] → Leaflet은 [lat, lng]으로 변환
-      const coords = data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
-      routeCache[cacheKey] = coords;
-      return coords;
-    }
+    const response = await fetch('https://valhalla1.openstreetmap.de/route', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+
+    const raw = await response.text();
+
+    // 한글 도로명의 이스케이프 문자로 인해 JSON.parse()가 실패할 수 있어
+    // shape 필드만 regex로 추출 후 나머지를 파싱한다
+    const shapeMatch = raw.match(/"shape":"([^"]+)"/);
+    if (!shapeMatch) return null;
+
+    const coords = decodePolyline6(shapeMatch[1].replace(/\\\\/g, '\\'));
+    if (coords.length < 2) return null;
+
+    // 소요시간(초)과 거리(km)도 추출
+    const timeMatch = raw.match(/"time":(\d+(?:\.\d+)?)/);
+    const lengthMatch = raw.match(/"length":(\d+(?:\.\d+)?)/);
+    const time = timeMatch ? parseFloat(timeMatch[1]) : null;
+    const distance = lengthMatch ? parseFloat(lengthMatch[1]) : null;
+
+    const result = { coords, time, distance };
+    routeCache[cacheKey] = result;
+    return result;
   } catch (error) {
-    console.warn('OSRM 경로 요청 실패:', error);
+    console.warn('Valhalla 경로 요청 실패:', error);
   }
 
   return null; // 실패 시 null → 직선 폴백
@@ -106,7 +182,7 @@ const FitBounds = ({ places }) => {
   return null;
 };
 
-const Map = ({ places }) => {
+const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
   const [routeSegments, setRouteSegments] = useState([]);
   const abortRef = useRef(null);
 
@@ -132,16 +208,34 @@ const Map = ({ places }) => {
         const to = places[i + 1];
         const transport = to.transport || 'bus';
         const style = TRANSPORT_STYLES[transport] || TRANSPORT_STYLES.bus;
-        const osrmProfile = OSRM_PROFILE_MAP[transport];
+        const costing = VALHALLA_COSTING_MAP[transport];
 
         let positions;
+        let isRealRoute = false;
+        let segTime = null;
+        let segDistance = null;
 
-        if (osrmProfile) {
-          // 도로 기반 교통수단 → OSRM에서 실제 도로 경로 가져오기
-          const routeCoords = await fetchRoute(from.lat, from.lng, to.lat, to.lng, osrmProfile);
-          positions = routeCoords || [[from.lat, from.lng], [to.lat, to.lng]]; // 실패 시 직선 폴백
+        if (costing) {
+          // 도로 기반 교통수단 → Valhalla에서 교통수단별 실제 경로 가져오기
+          const routeResult = await fetchRoute(from.lat, from.lng, to.lat, to.lng, costing);
+          positions = routeResult?.coords || [[from.lat, from.lng], [to.lat, to.lng]];
+          isRealRoute = !!(routeResult?.coords && routeResult.coords.length > 2);
+          segTime = routeResult?.time ?? null;
+          segDistance = routeResult?.distance ?? null;
+        } else if (transport === 'bus' || transport === 'subway') {
+          // 대중교통 → ODsay API로 실제 노선 경로 가져오기
+          // bus: SearchPathType=2(버스우선), subway: SearchPathType=1(지하철우선)
+          const transitResult = await fetchTransitRoute(from.lat, from.lng, to.lat, to.lng, transport);
+          const transitCoords = transitResult?.coords || null;
+          positions = transitCoords || [[from.lat, from.lng], [to.lat, to.lng]];
+          isRealRoute = !!(transitCoords && transitCoords.length > 2);
+          // ODsay가 반환한 소요시간(분→초), 거리(m→km) 반영
+          if (transitResult?.info) {
+            segTime = transitResult.info.totalTime ? transitResult.info.totalTime * 60 : null;
+            segDistance = transitResult.info.totalDistance ? transitResult.info.totalDistance / 1000 : null;
+          }
         } else {
-          // 배, 비행기 → 직선
+          // 기차, 배, 비행기 → 직선
           positions = [[from.lat, from.lng], [to.lat, to.lng]];
         }
 
@@ -151,12 +245,20 @@ const Map = ({ places }) => {
           transport,
           from: from.name,
           to: to.name,
-          isRoadRoute: !!osrmProfile && positions.length > 2,
+          isRoadRoute: isRealRoute,
+          time: segTime,
+          distance: segDistance,
         });
       }
 
       if (!thisRequest.cancelled) {
         setRouteSegments(segments);
+        // 전체 소요시간/거리 합계를 부모에게 전달
+        if (onRouteUpdate) {
+          const totalTime = segments.reduce((sum, s) => sum + (s.time || 0), 0);
+          const totalDistance = segments.reduce((sum, s) => sum + (s.distance || 0), 0);
+          onRouteUpdate({ totalTime, totalDistance });
+        }
       }
     };
 
@@ -183,7 +285,7 @@ const Map = ({ places }) => {
   }, [places]);
 
   return (
-    <div className="w-full h-full relative">
+    <div className="w-full h-full relative" ref={mapContainerRef}>
       <MapContainer
         center={[37.5665, 126.978]}
         zoom={12}
@@ -218,6 +320,17 @@ const Map = ({ places }) => {
                 <span style={{ color: seg.style.color }}>
                   {seg.style.pattern} {seg.style.label}
                 </span>
+                {seg.distance != null && (
+                  <span className="text-gray-500"> · {seg.distance.toFixed(1)}km</span>
+                )}
+                {seg.time != null && (
+                  <span className="text-gray-500">
+                    {' · '}
+                    {seg.time >= 3600
+                      ? `${Math.floor(seg.time / 3600)}시간 ${Math.round((seg.time % 3600) / 60)}분`
+                      : `${Math.round(seg.time / 60)}분`}
+                  </span>
+                )}
               </div>
             </Popup>
           </Polyline>

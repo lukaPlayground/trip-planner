@@ -51,6 +51,10 @@ const planSchema = new mongoose.Schema({
   },
   description: String,
   places: [placeSchema],
+  isPublic: {
+    type: Boolean,
+    default: false
+  },
   createdAt: {
     type: Date,
     default: Date.now

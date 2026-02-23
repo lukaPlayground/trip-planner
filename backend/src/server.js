@@ -16,6 +16,7 @@ app.use(express.json());
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/plans', require('./routes/plans'));
 app.use('/api/places', require('./routes/places'));
+app.use('/api/transit', require('./routes/transit'));
 
 app.get('/', (req, res) => {
   res.json({ message: 'Trip Planner API Running' });

@@ -137,93 +137,97 @@ const PlaceList = ({ places, onReorder, onToggleCheck, onDelete, onUpdateNote, o
                     <div
                       ref={provided.innerRef}
                       {...provided.draggableProps}
-                      className={`bg-white p-4 rounded-lg border transition-shadow ${
+                      className={`bg-white p-3 rounded-lg border transition-shadow ${
                         snapshot.isDragging ? 'shadow-lg border-blue-300' : 'border-gray-200 shadow-sm'
-                      } ${place.checked ? 'opacity-50' : ''}`}
+                      } ${place.checked ? 'opacity-60' : ''}`}
                     >
-                      <div className="flex items-start gap-3">
-                        <div {...provided.dragHandleProps} className="mt-1 cursor-grab active:cursor-grabbing">
-                          <FaGripVertical className="text-gray-400" />
+                      {/* 상단 행: 드래그핸들 + 번호 + 장소명 + 버튼 */}
+                      <div className="flex items-center gap-2">
+                        <div {...provided.dragHandleProps} className="cursor-grab active:cursor-grabbing flex-shrink-0">
+                          <FaGripVertical className="text-gray-300" size={13} />
                         </div>
 
-                        <div className="flex-shrink-0 w-8 h-8 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold text-sm">
+                        <div className="flex-shrink-0 w-7 h-7 bg-blue-500 text-white rounded-full flex items-center justify-center font-bold text-xs">
                           {place.order}
                         </div>
 
                         <div className="flex-1 min-w-0">
-                          <h3 className={`font-semibold text-gray-800 ${place.checked ? 'line-through text-gray-400' : ''}`}>
+                          <p className={`font-semibold text-sm text-gray-800 truncate ${place.checked ? 'line-through text-gray-400' : ''}`}>
                             {place.name}
-                          </h3>
-                          <p className="text-sm text-gray-500 truncate">{place.address}</p>
-
-                          {/* 이동수단 선택 (2번째 장소부터 표시) */}
-                          {index > 0 && (
-                            <div className="mt-2">
-                              <TransportRow
-                                place={place}
-                                index={index}
-                                currentTransport={currentTransport}
-                                isReservable={isReservable}
-                                onUpdateTransport={onUpdateTransport}
-                                onUpdateReservation={onUpdateReservation}
-                              />
-
-                              {/* 예약정보 입력 - 예약 가능 교통수단이면 바로 표시 */}
-                              {isReservable && (
-                                <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
-                                  <div className="flex items-center gap-2 mb-1.5">
-                                    <FaTicketAlt size={11} className="text-amber-500" />
-                                    <span className="text-xs font-medium text-amber-700">
-                                      {transportOpt.label} 예약정보
-                                    </span>
-                                  </div>
-                                  <input
-                                    type="text"
-                                    placeholder={transportOpt.placeholder}
-                                    value={place.reservation || ''}
-                                    onChange={(e) => onUpdateReservation(index, e.target.value)}
-                                    className="w-full text-sm border border-amber-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400 bg-white"
-                                  />
-                                  {place.reservation && (
-                                    <div className="mt-1.5 flex items-center gap-1.5 text-xs text-amber-600">
-                                      <FaCheck size={9} />
-                                      <span>예약번호 저장됨</span>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          <input
-                            type="text"
-                            placeholder="메모 추가 (예: 2시간 소요)"
-                            value={place.note || ''}
-                            onChange={(e) => onUpdateNote(index, e.target.value)}
-                            className="mt-2 w-full text-sm border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                          />
+                          </p>
+                          <p className="text-xs text-gray-400 truncate">{place.address}</p>
                         </div>
 
-                        <div className="flex gap-1.5 flex-shrink-0">
+                        {/* 우측 버튼 */}
+                        <div className="flex gap-1 flex-shrink-0">
                           <button
                             onClick={() => onToggleCheck(index)}
-                            className={`p-2 rounded-lg transition-colors ${
+                            className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${
                               place.checked
                                 ? 'bg-green-500 text-white'
                                 : 'bg-gray-100 text-gray-400 hover:bg-green-100 hover:text-green-600'
                             }`}
                             title={place.checked ? '완료 취소' : '완료 표시'}
                           >
-                            <FaCheck size={14} />
+                            <FaCheck size={11} />
                           </button>
                           <button
                             onClick={() => onDelete(index)}
-                            className="p-2 bg-gray-100 text-gray-400 hover:bg-red-100 hover:text-red-500 rounded-lg transition-colors"
+                            className="w-7 h-7 flex items-center justify-center bg-gray-100 text-gray-400 hover:bg-red-100 hover:text-red-500 rounded-lg transition-colors"
                             title="삭제"
                           >
-                            <FaTrash size={14} />
+                            <FaTrash size={11} />
                           </button>
                         </div>
+                      </div>
+
+                      {/* 이동수단 + 예약정보 + 메모 (2번째 장소부터) */}
+                      {index > 0 && (
+                        <div className="mt-2 ml-9">
+                          <TransportRow
+                            place={place}
+                            index={index}
+                            currentTransport={currentTransport}
+                            isReservable={isReservable}
+                            onUpdateTransport={onUpdateTransport}
+                            onUpdateReservation={onUpdateReservation}
+                          />
+
+                          {isReservable && (
+                            <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg">
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <FaTicketAlt size={10} className="text-amber-500" />
+                                <span className="text-xs font-medium text-amber-700">
+                                  {transportOpt.label} 예약정보
+                                </span>
+                              </div>
+                              <input
+                                type="text"
+                                placeholder={transportOpt.placeholder}
+                                value={place.reservation || ''}
+                                onChange={(e) => onUpdateReservation(index, e.target.value)}
+                                className="w-full text-xs border border-amber-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400 bg-white"
+                              />
+                              {place.reservation && (
+                                <div className="mt-1 flex items-center gap-1 text-xs text-amber-600">
+                                  <FaCheck size={8} />
+                                  <span>예약번호 저장됨</span>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 메모 입력 */}
+                      <div className="mt-2 ml-9">
+                        <input
+                          type="text"
+                          placeholder="메모 (예: 2시간 소요)"
+                          value={place.note || ''}
+                          onChange={(e) => onUpdateNote(index, e.target.value)}
+                          className="w-full text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        />
                       </div>
                     </div>
                   )}

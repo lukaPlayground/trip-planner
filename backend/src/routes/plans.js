@@ -3,6 +3,20 @@ const router = express.Router();
 const auth = require('../middleware/auth');
 const Plan = require('../models/Plan');
 
+// 공개 계획 조회 (인증 불필요) - /api/plans/shared/:id
+// NOTE: /:id보다 먼저 선언해야 라우트 충돌이 없다
+router.get('/shared/:id', async (req, res) => {
+  try {
+    const plan = await Plan.findOne({ _id: req.params.id, isPublic: true });
+    if (!plan) {
+      return res.status(404).json({ message: '공개된 계획을 찾을 수 없습니다' });
+    }
+    res.json(plan);
+  } catch (error) {
+    res.status(500).json({ message: '서버 오류', error: error.message });
+  }
+});
+
 // 모든 계획 조회
 router.get('/', auth, async (req, res) => {
   try {
@@ -85,6 +99,22 @@ router.delete('/:id', auth, async (req, res) => {
     }
 
     res.json({ message: '계획이 삭제되었습니다' });
+  } catch (error) {
+    res.status(500).json({ message: '서버 오류', error: error.message });
+  }
+});
+
+// 공유 설정 토글 (공개/비공개)
+router.patch('/:id/share', auth, async (req, res) => {
+  try {
+    const plan = await Plan.findOne({ _id: req.params.id, userId: req.userId });
+    if (!plan) {
+      return res.status(404).json({ message: '계획을 찾을 수 없습니다' });
+    }
+
+    plan.isPublic = !plan.isPublic;
+    await plan.save();
+    res.json({ isPublic: plan.isPublic, planId: plan._id });
   } catch (error) {
     res.status(500).json({ message: '서버 오류', error: error.message });
   }

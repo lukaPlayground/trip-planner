@@ -4,6 +4,7 @@ import { AuthContext } from './context/AuthContext';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import SharedPlan from './pages/SharedPlan';
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useContext(AuthContext);
@@ -32,6 +33,7 @@ function App() {
           </ProtectedRoute>
         }
       />
+      <Route path="/shared/:id" element={<SharedPlan />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   );
