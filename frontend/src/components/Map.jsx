@@ -4,12 +4,13 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 // 이동수단별 스타일 (색상 + 선 패턴 + 두께)
+// bus와 subway는 'transit'으로 통합 → ODsay 최적 경로(버스+지하철 혼합)
 const TRANSPORT_STYLES = {
   walk:       { color: '#10b981', dashArray: '4, 8',          weight: 4, label: '도보',    pattern: '· · · ·' },
   bicycle:    { color: '#34d399', dashArray: '10, 6',         weight: 4, label: '자전거',  pattern: '- - - -' },
   motorcycle: { color: '#a855f7', dashArray: '14, 6, 4, 6',  weight: 4, label: '바이크',  pattern: '─ · ─ ·' },
-  bus:        { color: '#3b82f6', dashArray: undefined,       weight: 6, label: '버스',    pattern: '━━━━' },
-  subway:     { color: '#6366f1', dashArray: '16, 8',         weight: 6, label: '지하철',  pattern: '━ ━ ━' },
+  bus:        { color: '#3b82f6', dashArray: undefined,       weight: 6, label: '대중교통', pattern: '━━━━' },
+  subway:     { color: '#3b82f6', dashArray: undefined,       weight: 6, label: '대중교통', pattern: '━━━━' },
   train:      { color: '#8b5cf6', dashArray: '24, 8',         weight: 6, label: '기차',    pattern: '━━ ━━' },
   car:        { color: '#f97316', dashArray: undefined,       weight: 5, label: '자차',    pattern: '━━━━' },
   taxi:       { color: '#eab308', dashArray: undefined,       weight: 3, label: '택시',    pattern: '───' },
@@ -23,8 +24,8 @@ const VALHALLA_COSTING_MAP = {
   walk:       'pedestrian',   // 보도 우선, 자동차전용도로 진입 불가
   bicycle:    'bicycle',      // 자전거도로 우선, 고속도로/자동차전용도로 진입 불가
   motorcycle: 'motor_scooter',// 이륜차 경로, 자동차전용도로 자동 회피
-  bus:        null,           // ODsay 대중교통 API 사용
-  subway:     null,           // ODsay 대중교통 API 사용
+  bus:        null,           // ODsay 대중교통 API 사용 (bus+subway 통합)
+  subway:     null,           // ODsay 대중교통 API 사용 (bus+subway 통합)
   train:      null,           // 고정 철도 노선 → 직선
   car:        'auto',         // 일반 차량 최적 경로
   taxi:       'auto',         // 일반 차량 최적 경로
@@ -33,17 +34,18 @@ const VALHALLA_COSTING_MAP = {
 };
 
 // ODsay API로 대중교통 경로를 가져오는 함수
-// bus/subway 교통수단에 사용 (mode: 'bus'=버스우선, 'subway'=지하철우선)
+// bus/subway 모두 동일하게 최적(혼합) 경로 사용 — mode 파라미터 불필요
+// 반환: { coords, info: {totalTime(분), totalDistance(m), ...}, transitDetail } 또는 null
 const transitCache = {};
 
-const fetchTransitRoute = async (fromLat, fromLng, toLat, toLng, mode = 'bus') => {
-  const cacheKey = `transit-${mode}-${fromLat},${fromLng}-${toLat},${toLng}`;
+const fetchTransitRoute = async (fromLat, fromLng, toLat, toLng) => {
+  const cacheKey = `transit-${fromLat},${fromLng}-${toLat},${toLng}`;
   if (transitCache[cacheKey] !== undefined) return transitCache[cacheKey];
 
   try {
     const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
     // ODsay는 경도(X), 위도(Y) 순서
-    const url = `${apiBase}/transit/route?sx=${fromLng}&sy=${fromLat}&ex=${toLng}&ey=${toLat}&mode=${mode}`;
+    const url = `${apiBase}/transit/route?sx=${fromLng}&sy=${fromLat}&ex=${toLng}&ey=${toLat}`;
     const response = await fetch(url);
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -252,16 +254,18 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
           segDistance = routeResult?.distance ?? null;
           streetNames = routeResult?.streetNames ?? null; // 바이크 전용
         } else if (transport === 'bus' || transport === 'subway') {
-          // 대중교통 → ODsay API로 실제 노선 경로 가져오기
-          // bus: SearchPathType=2(버스우선), subway: SearchPathType=1(지하철우선)
-          const transitResult = await fetchTransitRoute(from.lat, from.lng, to.lat, to.lng, transport);
+          // 대중교통 → ODsay API (버스+지하철 통합 최적 경로)
+          const transitResult = await fetchTransitRoute(from.lat, from.lng, to.lat, to.lng);
           const transitCoords = transitResult?.coords || null;
           positions = transitCoords || [[from.lat, from.lng], [to.lat, to.lng]];
           isRealRoute = !!(transitCoords && transitCoords.length > 2);
-          // ODsay가 반환한 소요시간(분→초), 거리(m→km) 반영
+          // ODsay 단위: totalTime=분, totalDistance=m
+          // → segTime=초, segDistance=km 로 변환 (Valhalla와 동일 단위)
           if (transitResult?.info) {
-            segTime = transitResult.info.totalTime ? transitResult.info.totalTime * 60 : null;
-            segDistance = transitResult.info.totalDistance ? transitResult.info.totalDistance / 1000 : null;
+            const t = transitResult.info.totalTime;
+            const d = transitResult.info.totalDistance;
+            segTime = (t != null && t > 0) ? t * 60 : null;        // 분 → 초
+            segDistance = (d != null && d > 0) ? d / 1000 : null;  // m → km
           }
           // 환승 상세 정보
           transitDetail = transitResult?.transitDetail || null;
@@ -480,11 +484,13 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
         })}
       </MapContainer>
 
-      {/* 범례 - 패턴 미리보기 포함 */}
+      {/* 범례 - subway는 bus와 동일 스타일이므로 중복 제거 */}
       {places.length >= 2 && (
         <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 shadow-md z-[1000] text-xs">
           <div className="font-semibold text-gray-700 mb-1">이동수단</div>
-          {Object.entries(TRANSPORT_STYLES).map(([key, style]) => (
+          {Object.entries(TRANSPORT_STYLES)
+            .filter(([key]) => key !== 'subway') // bus와 동일 표시 → 중복 제거
+            .map(([key, style]) => (
             <div key={key} className="flex items-center gap-2 py-0.5">
               <svg width="28" height="6" className="flex-shrink-0">
                 <line

@@ -2,18 +2,19 @@ import { useRef, useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { FaGripVertical, FaTrash, FaCheck, FaWalking, FaBicycle, FaMotorcycle, FaBus, FaSubway, FaTrain, FaCar, FaTaxi, FaShip, FaPlane, FaTicketAlt, FaChevronRight, FaChevronDown, FaExchangeAlt } from 'react-icons/fa';
 
-// 예약 가능 여부 포함
+// bus/subway → 대중교통(transit)으로 통합
+// 내부 값은 'bus' 유지(Map.jsx와 호환), UI에서는 "대중교통" 단일 버튼으로 표시
 const TRANSPORT_OPTIONS = [
-  { value: 'walk',       icon: FaWalking,    label: '도보',   color: '#10b981', reservable: false },
-  { value: 'bicycle',    icon: FaBicycle,    label: '자전거', color: '#34d399', reservable: false },
-  { value: 'motorcycle', icon: FaMotorcycle, label: '바이크', color: '#a855f7', reservable: false },
-  { value: 'bus',        icon: FaBus,        label: '버스',   color: '#3b82f6', reservable: true, placeholder: '예매번호 (고속/시외버스)' },
-  { value: 'subway',     icon: FaSubway,     label: '지하철', color: '#6366f1', reservable: false },
-  { value: 'train',      icon: FaTrain,      label: '기차',   color: '#8b5cf6', reservable: true, placeholder: '예매번호 (KTX/SRT 등)' },
-  { value: 'car',        icon: FaCar,        label: '자차',   color: '#f97316', reservable: false },
-  { value: 'taxi',       icon: FaTaxi,       label: '택시',   color: '#eab308', reservable: false },
-  { value: 'ship',       icon: FaShip,       label: '배',     color: '#06b6d4', reservable: true, placeholder: '예매번호 (여객선)' },
-  { value: 'plane',      icon: FaPlane,      label: '비행기', color: '#ec4899', reservable: true, placeholder: '예약번호 (항공편명)' },
+  { value: 'walk',       icon: FaWalking,    label: '도보',    color: '#10b981', reservable: false },
+  { value: 'bicycle',    icon: FaBicycle,    label: '자전거',  color: '#34d399', reservable: false },
+  { value: 'motorcycle', icon: FaMotorcycle, label: '바이크',  color: '#a855f7', reservable: false },
+  { value: 'bus',        icon: FaBus,        label: '대중교통', color: '#3b82f6', reservable: false },
+  // subway는 UI에서 제거 — bus와 동일 ODsay 경로 사용
+  { value: 'train',      icon: FaTrain,      label: '기차',    color: '#8b5cf6', reservable: true, placeholder: '예매번호 (KTX/SRT 등)' },
+  { value: 'car',        icon: FaCar,        label: '자차',    color: '#f97316', reservable: false },
+  { value: 'taxi',       icon: FaTaxi,       label: '택시',    color: '#eab308', reservable: false },
+  { value: 'ship',       icon: FaShip,       label: '배',      color: '#06b6d4', reservable: true, placeholder: '예매번호 (여객선)' },
+  { value: 'plane',      icon: FaPlane,      label: '비행기',  color: '#ec4899', reservable: true, placeholder: '예약번호 (항공편명)' },
 ];
 
 // 스크롤 가능 여부 감지 훅
@@ -117,7 +118,9 @@ const SegmentCard = ({
   const [open, setOpen] = useState(false);
   const { scrollRef, showHint } = useScrollHint();
 
-  const currentTransport = place.transport || 'bus';
+  // subway는 UI에서 제거됐지만 기존 저장 데이터 호환: subway → bus로 fallback
+  const rawTransport = place.transport || 'bus';
+  const currentTransport = rawTransport === 'subway' ? 'bus' : rawTransport;
   const transportOpt = TRANSPORT_OPTIONS.find(t => t.value === currentTransport);
   const transportColor = transportOpt?.color || '#3b82f6';
   const isReservable = transportOpt?.reservable;
@@ -146,6 +149,7 @@ const SegmentCard = ({
                 <button
                   key={value}
                   onClick={() => {
+                    // bus 선택 시 내부값 'bus' 저장 (subway 제거로 통합)
                     onUpdateTransport(placeIndex, value);
                     if (!reservable && place.reservation) {
                       onUpdateReservation(placeIndex, '');

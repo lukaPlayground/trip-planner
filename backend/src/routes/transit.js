@@ -142,23 +142,22 @@ const dedup = (coords) =>
     return coord[0] !== prev[0] || coord[1] !== prev[1];
   });
 
-// ODsay 경로 검색 (대중교통: 버스+지하철)
-// GET /api/transit/route?sx=경도&sy=위도&ex=경도&ey=위도&mode=bus|subway
-// SearchPathType: 0=최적(혼합), 1=지하철, 2=버스
+// ODsay 경로 검색 (대중교통: 버스+지하철 통합)
+// GET /api/transit/route?sx=경도&sy=위도&ex=경도&ey=위도&mode=transit
+// SearchPathType: 0=최적(혼합) — 버스·지하철 통합 최적 경로 사용
 // SearchType: 0=도시내, 1=도시간(광역) — 결과 없으면 광역으로 자동 폴백
 // 광역+도시내 연계: 두 지역을 경유하는 경우 중간 분할 탐색으로 구간 이어 붙임
+// 반환 단위: totalTime=분, totalDistance=m (Map.jsx에서 변환)
 router.get('/route', async (req, res) => {
   try {
-    const { sx, sy, ex, ey, mode } = req.query;
+    const { sx, sy, ex, ey } = req.query;
 
     if (!sx || !sy || !ex || !ey) {
       return res.status(400).json({ message: '출발/도착 좌표가 필요합니다 (sx, sy, ex, ey)' });
     }
 
-    // mode에 따라 SearchPathType 결정
-    let searchPathType = 0; // 기본: 최적(버스+지하철 혼합)
-    if (mode === 'subway') searchPathType = 1; // 지하철 우선
-    if (mode === 'bus') searchPathType = 2;    // 버스 우선
+    // SearchPathType=0: 최적(버스+지하철 혼합) — 버스/지하철 구분 없이 최적 경로
+    const searchPathType = 0;
 
     // ── 1단계: 전체 구간 단일 검색 (도시내 → 광역 폴백) ──
     const fullData = await callOdsayWithFallback(sx, sy, ex, ey, searchPathType);
