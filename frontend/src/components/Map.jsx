@@ -88,8 +88,29 @@ const decodePolyline6 = (encoded) => {
 // 경로 캐시 (세션 동안 유지)
 const routeCache = {};
 
+// Valhalla maneuvers에서 주요 도로명 추출 (바이크 경로용)
+// "street_names":["도로명1","도로명2"] 패턴을 찾아 유니크하게 수집
+const extractStreetNames = (raw) => {
+  const names = [];
+  const regex = /"street_names":\[([^\]]*)\]/g;
+  let match;
+  while ((match = regex.exec(raw)) !== null) {
+    const inner = match[1];
+    // 문자열 배열 파싱: ["name1","name2"]
+    const items = inner.match(/"([^"]+)"/g);
+    if (items) {
+      items.forEach(item => {
+        const name = item.replace(/"/g, '').trim();
+        if (name && !names.includes(name)) names.push(name);
+      });
+    }
+  }
+  // 중복·너무 많으면 상위 5개만
+  return names.slice(0, 5);
+};
+
 // Valhalla 공개 서버에서 교통수단별 실제 도로 경로를 가져오는 함수
-// 반환: { coords: [[lat,lng],...], time: 초, distance: km } 또는 null
+// 반환: { coords, time, distance, streetNames? } 또는 null
 const fetchRoute = async (fromLat, fromLng, toLat, toLng, costing) => {
   const cacheKey = `${fromLat},${fromLng}-${toLat},${toLng}-${costing}`;
   if (routeCache[cacheKey]) return routeCache[cacheKey];
@@ -120,13 +141,16 @@ const fetchRoute = async (fromLat, fromLng, toLat, toLng, costing) => {
     const coords = decodePolyline6(shapeMatch[1].replace(/\\\\/g, '\\'));
     if (coords.length < 2) return null;
 
-    // 소요시간(초)과 거리(km)도 추출
+    // 소요시간(초)과 거리(km) 추출
     const timeMatch = raw.match(/"time":(\d+(?:\.\d+)?)/);
     const lengthMatch = raw.match(/"length":(\d+(?:\.\d+)?)/);
     const time = timeMatch ? parseFloat(timeMatch[1]) : null;
     const distance = lengthMatch ? parseFloat(lengthMatch[1]) : null;
 
-    const result = { coords, time, distance };
+    // 바이크(motor_scooter)인 경우 주요 도로명 추출
+    const streetNames = costing === 'motor_scooter' ? extractStreetNames(raw) : null;
+
+    const result = { coords, time, distance, streetNames };
     routeCache[cacheKey] = result;
     return result;
   } catch (error) {
@@ -186,6 +210,8 @@ const FitBounds = ({ places }) => {
 
 const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
   const [routeSegments, setRouteSegments] = useState([]);
+  const [autoOpenIdx, setAutoOpenIdx] = useState(null); // 자동으로 Popup 열 세그먼트 인덱스
+  const polylineRefs = useRef({}); // 세그먼트별 Polyline ref
   const abortRef = useRef(null);
 
   // places가 바뀔 때마다 경로 계산
@@ -217,6 +243,7 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
         let segTime = null;
         let segDistance = null;
         let transitDetail = null;
+        let streetNames = null;
 
         if (costing) {
           // 도로 기반 교통수단 → Valhalla에서 교통수단별 실제 경로 가져오기
@@ -225,6 +252,7 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
           isRealRoute = !!(routeResult?.coords && routeResult.coords.length > 2);
           segTime = routeResult?.time ?? null;
           segDistance = routeResult?.distance ?? null;
+          streetNames = routeResult?.streetNames ?? null; // 바이크 전용
         } else if (transport === 'bus' || transport === 'subway') {
           // 대중교통 → ODsay API로 실제 노선 경로 가져오기
           // bus: SearchPathType=2(버스우선), subway: SearchPathType=1(지하철우선)
@@ -254,11 +282,14 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
           time: segTime,
           distance: segDistance,
           transitDetail, // 대중교통 환승 상세 (버스번호, 호선, 승하차 정류장)
+          streetNames,   // 바이크 주요 도로명 목록
         });
       }
 
       if (!thisRequest.cancelled) {
         setRouteSegments(segments);
+        // 마지막으로 추가된 세그먼트(가장 최근 구간)의 Popup 자동 오픈
+        setAutoOpenIdx(segments.length - 1);
         // 전체 소요시간/거리 합계 + 세그먼트 목록을 부모에게 전달
         if (onRouteUpdate) {
           const totalTime = segments.reduce((sum, s) => sum + (s.time || 0), 0);
@@ -267,6 +298,10 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
         }
       }
     };
+
+    // 새 places가 들어오면 자동 Popup 초기화
+    setAutoOpenIdx(null);
+    polylineRefs.current = {};
 
     // 즉시 직선으로 표시 후, 비동기로 도로 경로 업데이트
     const quickSegments = [];
@@ -290,6 +325,24 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
     buildSegments();
   }, [places]);
 
+  // autoOpenIdx가 바뀌면 해당 폴리라인의 Popup 자동 오픈
+  useEffect(() => {
+    if (autoOpenIdx === null) return;
+    const polyline = polylineRefs.current[autoOpenIdx];
+    if (polyline) {
+      // 폴리라인 중간 지점에서 Popup 열기
+      try {
+        const latlngs = polyline.getLatLngs();
+        if (latlngs && latlngs.length > 0) {
+          const mid = latlngs[Math.floor(latlngs.length / 2)];
+          polyline.openPopup(mid);
+        }
+      } catch (e) {
+        // 무시
+      }
+    }
+  }, [autoOpenIdx, routeSegments]);
+
   return (
     <div className="w-full h-full relative" ref={mapContainerRef}>
       <MapContainer
@@ -310,6 +363,7 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
           <Polyline
             key={`route-${i}-${seg.positions.length}`}
             positions={seg.positions}
+            ref={(el) => { if (el) polylineRefs.current[i] = el; }}
             pathOptions={{
               color: seg.style.color,
               weight: seg.style.weight,
@@ -340,6 +394,19 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
                     </span>
                   )}
                 </div>
+                {/* 바이크 주요 경유 도로 */}
+                {seg.streetNames && seg.streetNames.length > 0 && (
+                  <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '6px', marginTop: '4px' }}>
+                    <div style={{ fontSize: '11px', color: '#7c3aed', fontWeight: 'bold', marginBottom: '3px' }}>
+                      🛵 주요 경유 도로
+                    </div>
+                    {seg.streetNames.map((name, ni) => (
+                      <div key={ni} style={{ fontSize: '11px', color: '#374151', padding: '1px 0' }}>
+                        · {name}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {/* 대중교통 환승 상세 */}
                 {seg.transitDetail && seg.transitDetail.length > 0 && (
                   <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '6px', marginTop: '4px' }}>

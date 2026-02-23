@@ -8,9 +8,33 @@ const ODSAY_BASE = 'https://api.odsay.com/v1/api';
 // 백엔드에서 Origin: http://localhost:5173 헤더를 추가해서 프록시 처리한다.
 const ODSAY_ORIGIN = 'http://localhost:5173';
 
+// ODsay API 단일 호출 헬퍼
+// searchType: 0=도시내, 1=도시간(광역)
+// searchPathType: 0=최적, 1=지하철, 2=버스
+const callOdsay = async (sx, sy, ex, ey, searchType, searchPathType) => {
+  const url = new URL(`${ODSAY_BASE}/searchPubTransPathT`);
+  url.searchParams.set('apiKey', ODSAY_API_KEY);
+  url.searchParams.set('SX', sx);
+  url.searchParams.set('SY', sy);
+  url.searchParams.set('EX', ex);
+  url.searchParams.set('EY', ey);
+  url.searchParams.set('SearchType', searchType);
+  url.searchParams.set('SearchPathType', searchPathType);
+  url.searchParams.set('OdsayVersion', '1.0');
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      'Origin': ODSAY_ORIGIN,
+      'Referer': `${ODSAY_ORIGIN}/`,
+    },
+  });
+  return response.json();
+};
+
 // ODsay 경로 검색 (대중교통: 버스+지하철)
 // GET /api/transit/route?sx=경도&sy=위도&ex=경도&ey=위도&mode=bus|subway
 // SearchPathType: 0=최적(혼합), 1=지하철, 2=버스
+// SearchType: 0=도시내, 1=도시간(광역) — 결과 없으면 광역으로 자동 폴백
 router.get('/route', async (req, res) => {
   try {
     const { sx, sy, ex, ey, mode } = req.query;
@@ -24,24 +48,15 @@ router.get('/route', async (req, res) => {
     if (mode === 'subway') searchPathType = 1; // 지하철 우선
     if (mode === 'bus') searchPathType = 2;    // 버스 우선
 
-    const url = new URL(`${ODSAY_BASE}/searchPubTransPathT`);
-    url.searchParams.set('apiKey', ODSAY_API_KEY);
-    url.searchParams.set('SX', sx);   // 출발 경도
-    url.searchParams.set('SY', sy);   // 출발 위도
-    url.searchParams.set('EX', ex);   // 도착 경도
-    url.searchParams.set('EY', ey);   // 도착 위도
-    url.searchParams.set('SearchType', 0);             // 0: 도시내
-    url.searchParams.set('SearchPathType', searchPathType);
-    url.searchParams.set('OdsayVersion', '1.0');
+    // 1차: 도시내(SearchType=0) 검색
+    let data = await callOdsay(sx, sy, ex, ey, 0, searchPathType);
 
-    const response = await fetch(url.toString(), {
-      headers: {
-        'Origin': ODSAY_ORIGIN,
-        'Referer': `${ODSAY_ORIGIN}/`,
-      },
-    });
-
-    const data = await response.json();
+    // 도시내 결과 없거나 에러면 → 도시간(SearchType=1) 광역 검색으로 폴백
+    const hasResult = (d) => d?.result?.path && d.result.path.length > 0;
+    if (!hasResult(data)) {
+      console.log('ODsay 도시내 결과 없음 → 광역(SearchType=1) 재시도');
+      data = await callOdsay(sx, sy, ex, ey, 1, searchPathType);
+    }
 
     if (data.error) {
       console.error('ODsay API Error:', JSON.stringify(data.error));
