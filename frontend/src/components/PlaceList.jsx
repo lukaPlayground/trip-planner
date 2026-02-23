@@ -1,9 +1,9 @@
 import { useRef, useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { FaGripVertical, FaTrash, FaCheck, FaWalking, FaBicycle, FaMotorcycle, FaBus, FaSubway, FaTrain, FaCar, FaTaxi, FaShip, FaPlane, FaTicketAlt, FaChevronRight, FaChevronDown, FaExchangeAlt } from 'react-icons/fa';
+import { FaGripVertical, FaTrash, FaCheck, FaWalking, FaBicycle, FaMotorcycle, FaBus, FaSubway, FaTrain, FaCar, FaShip, FaPlane, FaTicketAlt, FaChevronRight, FaChevronDown, FaExchangeAlt, FaRoad } from 'react-icons/fa';
 
-// bus/subway → 대중교통(transit)으로 통합
-// 내부 값은 'bus' 유지(Map.jsx와 호환), UI에서는 "대중교통" 단일 버튼으로 표시
+// bus/subway → 대중교통(transit)으로 통합: 내부 값 'bus' 유지 (Map.jsx 호환)
+// car/taxi → 자동차로 통합: 내부 값 'car' 유지, taxi 레거시 데이터는 car로 폴백
 const TRANSPORT_OPTIONS = [
   { value: 'walk',       icon: FaWalking,    label: '도보',    color: '#10b981', reservable: false },
   { value: 'bicycle',    icon: FaBicycle,    label: '자전거',  color: '#34d399', reservable: false },
@@ -11,8 +11,8 @@ const TRANSPORT_OPTIONS = [
   { value: 'bus',        icon: FaBus,        label: '대중교통', color: '#3b82f6', reservable: false },
   // subway는 UI에서 제거 — bus와 동일 ODsay 경로 사용
   { value: 'train',      icon: FaTrain,      label: '기차',    color: '#8b5cf6', reservable: true, placeholder: '예매번호 (KTX/SRT 등)' },
-  { value: 'car',        icon: FaCar,        label: '자차',    color: '#f97316', reservable: false },
-  { value: 'taxi',       icon: FaTaxi,       label: '택시',    color: '#eab308', reservable: false },
+  { value: 'car',        icon: FaCar,        label: '자동차',  color: '#f97316', reservable: false },
+  // taxi는 UI에서 제거 — car와 동일 Valhalla auto 경로 사용 (레거시 데이터 → car 폴백)
   { value: 'ship',       icon: FaShip,       label: '배',      color: '#06b6d4', reservable: true, placeholder: '예매번호 (여객선)' },
   { value: 'plane',      icon: FaPlane,      label: '비행기',  color: '#ec4899', reservable: true, placeholder: '예약번호 (항공편명)' },
 ];
@@ -118,9 +118,13 @@ const SegmentCard = ({
   const [open, setOpen] = useState(false);
   const { scrollRef, showHint } = useScrollHint();
 
-  // subway는 UI에서 제거됐지만 기존 저장 데이터 호환: subway → bus로 fallback
+  // subway/taxi는 UI에서 제거됐지만 기존 저장 데이터 호환:
+  //   subway → bus, taxi → car 로 fallback
   const rawTransport = place.transport || 'bus';
-  const currentTransport = rawTransport === 'subway' ? 'bus' : rawTransport;
+  const currentTransport =
+    rawTransport === 'subway' ? 'bus' :
+    rawTransport === 'taxi'   ? 'car' :
+    rawTransport;
   const transportOpt = TRANSPORT_OPTIONS.find(t => t.value === currentTransport);
   const transportColor = transportOpt?.color || '#3b82f6';
   const isReservable = transportOpt?.reservable;
@@ -128,6 +132,7 @@ const SegmentCard = ({
   const segTimeStr = seg?.time != null ? formatSegTime(seg.time) : null;
   const segDistStr = seg?.distance != null ? `${seg.distance.toFixed(1)}km` : null;
   const hasTransitDetail = seg?.transitDetail && seg.transitDetail.length > 0;
+  const hasToll = currentTransport === 'car' && seg?.hasToll === true;
 
   return (
     <div className="relative flex items-stretch px-1">
@@ -199,6 +204,14 @@ const SegmentCard = ({
         {/* 환승 상세 패널 */}
         {open && hasTransitDetail && (
           <TransitDetailPanel transitDetail={seg.transitDetail} />
+        )}
+
+        {/* 유료도로 안내 (자동차 + hasToll) */}
+        {hasToll && (
+          <div className="mt-1.5 flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-amber-50 border border-amber-200">
+            <FaRoad size={10} className="text-amber-500 flex-shrink-0" />
+            <span className="text-xs text-amber-700 font-medium">유료도로 포함 구간</span>
+          </div>
         )}
 
         {/* 예약 정보 입력 (예약 가능 수단일 때) */}
