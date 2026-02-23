@@ -240,8 +240,50 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
     }
 
     const buildSegments = async () => {
-      const segments = [];
+      // 초기 세그먼트 배열: 캐시 히트 → 즉시 정확한 결과, 캐시 미스 → 직선 placeholder
+      const segments = places.slice(0, -1).map((from, i) => {
+        const to = places[i + 1];
+        const transport = to.transport || 'bus';
+        const style = TRANSPORT_STYLES[transport] || TRANSPORT_STYLES.bus;
 
+        // 캐시에 이미 결과가 있으면 초기값으로 사용 (직선 깜빡임 방지)
+        const cacheKey = `transit-${from.lat},${from.lng}-${to.lat},${to.lng}`;
+        const cached = (transport === 'bus' || transport === 'subway') ? transitCache[cacheKey] : undefined;
+        if (cached !== undefined && cached !== null) {
+          const t = cached.info?.totalTime;
+          const d = cached.info?.totalDistance;
+          return {
+            positions:    cached.coords || [[from.lat, from.lng], [to.lat, to.lng]],
+            style, transport, from: from.name, to: to.name,
+            isRoadRoute:  !!(cached.coords && cached.coords.length > 2),
+            time:         (t != null && t > 0) ? t * 60 : null,
+            distance:     (d != null && d > 0) ? d / 1000 : null,
+            transitDetail: cached.transitDetail || null,
+            longDistance:  cached.longDistance || false,
+            streetNames: null, hasToll: false,
+          };
+        }
+
+        // 캐시 없음 → 직선 placeholder
+        return {
+          positions: [[from.lat, from.lng], [to.lat, to.lng]],
+          style, transport, from: from.name, to: to.name,
+          isRoadRoute: false, time: null, distance: null,
+          transitDetail: null, longDistance: false, streetNames: null, hasToll: false,
+        };
+      });
+
+      // 초기 상태를 즉시 반영 (캐시 결과 포함)
+      if (!thisRequest.cancelled) {
+        setRouteSegments([...segments]);
+        if (onRouteUpdate) {
+          const totalTime     = segments.reduce((s, seg) => s + (seg.time || 0), 0);
+          const totalDistance = segments.reduce((s, seg) => s + (seg.distance || 0), 0);
+          onRouteUpdate({ totalTime, totalDistance, segments: [...segments] });
+        }
+      }
+
+      // 각 구간을 순서대로 실제 경로로 업데이트 (구간 완료 시 즉시 화면 갱신)
       for (let i = 0; i < places.length - 1; i++) {
         if (thisRequest.cancelled) return;
 
@@ -267,13 +309,12 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
             positions   = routeResult.coords;
             isRealRoute = positions.length > 2;
           }
-          // ── 핵심 수정: summary 레벨 time(초)/distance(km) 사용 ──
-          segTime     = routeResult?.time     ?? null;  // 초
-          segDistance = routeResult?.distance ?? null;  // km
+          segTime     = routeResult?.time     ?? null;
+          segDistance = routeResult?.distance ?? null;
           streetNames = routeResult?.streetNames ?? null;
           hasToll     = routeResult?.hasToll ?? false;
         } else if (transport === 'bus' || transport === 'subway') {
-          // ODsay 대중교통
+          // ODsay 대중교통 (캐시 히트면 위 초기화 단계에서 이미 반영됨 — 재확인만)
           const transitResult = await fetchTransitRoute(from.lat, from.lng, to.lat, to.lng);
           if (transitResult?.coords) {
             positions   = transitResult.coords;
@@ -282,51 +323,33 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
           if (transitResult?.info) {
             const t = transitResult.info.totalTime;
             const d = transitResult.info.totalDistance;
-            segTime     = (t != null && t > 0) ? t * 60 : null;   // 분 → 초
-            segDistance = (d != null && d > 0) ? d / 1000 : null; // m  → km
+            segTime     = (t != null && t > 0) ? t * 60 : null;
+            segDistance = (d != null && d > 0) ? d / 1000 : null;
           }
           transitDetail = transitResult?.transitDetail || null;
           longDistance  = transitResult?.longDistance || false;
         }
         // train, ship, plane → 직선 유지
 
-        segments.push({
-          positions,
-          style,
-          transport,
-          from: from.name,
-          to:   to.name,
-          isRoadRoute: isRealRoute,
-          time:         segTime,
-          distance:     segDistance,
-          transitDetail,
-          streetNames,
-          hasToll,
-          longDistance,
-        });
-      }
+        if (thisRequest.cancelled) return;
 
-      if (!thisRequest.cancelled) {
-        setRouteSegments(segments);
+        // 이 구간만 즉시 업데이트 (다른 구간은 유지)
+        segments[i] = {
+          positions, style, transport,
+          from: from.name, to: to.name,
+          isRoadRoute: isRealRoute,
+          time: segTime, distance: segDistance,
+          transitDetail, streetNames, hasToll, longDistance,
+        };
+
+        setRouteSegments([...segments]);
         if (onRouteUpdate) {
           const totalTime     = segments.reduce((s, seg) => s + (seg.time || 0), 0);
           const totalDistance = segments.reduce((s, seg) => s + (seg.distance || 0), 0);
-          onRouteUpdate({ totalTime, totalDistance, segments });
+          onRouteUpdate({ totalTime, totalDistance, segments: [...segments] });
         }
       }
     };
-
-    // 즉시 직선 표시
-    const quickSegments = places.slice(0, -1).map((from, i) => {
-      const to = places[i + 1];
-      const transport = to.transport || 'bus';
-      return {
-        positions: [[from.lat, from.lng], [to.lat, to.lng]],
-        style: TRANSPORT_STYLES[transport] || TRANSPORT_STYLES.bus,
-        transport, from: from.name, to: to.name, isRoadRoute: false,
-      };
-    });
-    setRouteSegments(quickSegments);
 
     buildSegments();
   }, [places]);
