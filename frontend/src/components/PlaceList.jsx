@@ -133,6 +133,9 @@ const SegmentCard = ({
   const segDistStr = seg?.distance != null ? `${seg.distance.toFixed(1)}km` : null;
   const hasTransitDetail = seg?.transitDetail && seg.transitDetail.length > 0;
   const hasToll = currentTransport === 'car' && seg?.hasToll === true;
+  // 광역 대중교통 구간에서 ODsay 경로를 찾지 못한 경우 → 기차 이용 안내
+  const showLongDistanceHint =
+    currentTransport === 'bus' && seg?.longDistance && !hasTransitDetail;
 
   return (
     <div className="relative flex items-stretch px-1">
@@ -211,6 +214,20 @@ const SegmentCard = ({
           <div className="mt-1.5 flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-amber-50 border border-amber-200">
             <FaRoad size={10} className="text-amber-500 flex-shrink-0" />
             <span className="text-xs text-amber-700 font-medium">유료도로 포함 구간</span>
+          </div>
+        )}
+
+        {/* 광역 구간 기차 이용 안내 (50km 이상 + ODsay 경로 없음) */}
+        {showLongDistanceHint && (
+          <div className="mt-1.5 p-2.5 rounded-lg bg-amber-50 border border-amber-200">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className="text-sm">🚆</span>
+              <span className="text-xs font-semibold text-amber-800">장거리 구간 — 기차 이용 추천</span>
+            </div>
+            <p className="text-xs text-amber-700 leading-relaxed">
+              버스·지하철 직통 경로가 없습니다.<br/>
+              KTX·SRT·무궁화 등 <strong>기차</strong>로 이동수단을 변경하면 예약번호를 저장할 수 있습니다.
+            </p>
           </div>
         )}
 

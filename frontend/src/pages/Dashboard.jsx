@@ -8,7 +8,7 @@ import api from '../api/axios';
 import { useExport } from '../components/ExportButton';
 import {
   FaPlus, FaSave, FaSignOutAlt, FaTrash, FaChevronDown,
-  FaShareAlt, FaLink, FaCopy, FaFilePdf, FaCamera, FaCheck,
+  FaShareAlt, FaLink, FaCopy, FaFilePdf, FaCheck,
 } from 'react-icons/fa';
 
 const Dashboard = () => {
@@ -217,11 +217,6 @@ const Dashboard = () => {
     if (exportHelper) await exportHelper.exportToPDF();
   };
 
-  const handleExportScreenshot = async () => {
-    setShowShareMenu(false);
-    if (exportHelper) await exportHelper.exportScreenshot();
-  };
-
   const isExporting = exportHelper?.exporting;
 
   const checkedCount = places.filter(p => p.checked).length;
@@ -387,15 +382,6 @@ const Dashboard = () => {
                   >
                     <FaFilePdf size={13} className="text-red-500" />
                     <span>PDF로 저장</span>
-                  </button>
-
-                  <button
-                    onClick={handleExportScreenshot}
-                    disabled={places.length === 0}
-                    className="flex items-center gap-2.5 w-full px-4 py-2.5 hover:bg-gray-50 text-sm transition-colors disabled:opacity-40"
-                  >
-                    <FaCamera size={12} className="text-blue-500" />
-                    <span>화면 캡처</span>
                   </button>
                 </div>
               )}

@@ -8,6 +8,39 @@ const ODSAY_BASE = 'https://api.odsay.com/v1/api';
 // 백엔드에서 Origin: http://localhost:5173 헤더를 추가해서 프록시 처리한다.
 const ODSAY_ORIGIN = 'http://localhost:5173';
 
+// KTX/SRT 주요 환승 거점역 (경도, 위도) — 광역 분할 pivot 후보
+// 실제 역 좌표 기준으로 정렬 (서울권 → 충청권 → 영남권 → 호남권)
+const KTX_PIVOTS = [
+  { name: '수서역',    x: 127.1016, y: 37.4876 },
+  { name: '광명역',   x: 126.8629, y: 37.4158 },
+  { name: '천안아산역', x: 127.0008, y: 36.7955 },
+  { name: '오송역',   x: 127.2989, y: 36.6247 },
+  { name: '대전역',   x: 127.4344, y: 36.3323 },
+  { name: '서대전역', x: 127.3950, y: 36.3243 },
+  { name: '동대구역', x: 128.6244, y: 35.8799 },
+  { name: '구미역',   x: 128.3373, y: 36.1167 },
+  { name: '김천구미역', x: 128.1557, y: 36.1392 },
+  { name: '울산역',   x: 129.4217, y: 35.5564 },
+  { name: '부산역',   x: 129.0403, y: 35.1148 },
+  { name: '광주송정역', x: 126.7940, y: 35.1395 },
+  { name: '익산역',   x: 126.9544, y: 35.9344 },
+  { name: '전주역',   x: 127.1540, y: 35.7872 },
+  { name: '목포역',   x: 126.3921, y: 34.7907 },
+];
+
+// 두 좌표 간 거리 계산 (Haversine, km)
+const haversineKm = (lat1, lng1, lat2, lng2) => {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
 // ODsay API 단일 호출 헬퍼
 // searchType: 0=도시내, 1=도시간(광역)
 // searchPathType: 0=최적, 1=지하철, 2=버스
@@ -37,7 +70,6 @@ const hasResult = (d) => d?.result?.path && d.result.path.length > 0;
 const callOdsayWithFallback = async (sx, sy, ex, ey, searchPathType) => {
   let data = await callOdsay(sx, sy, ex, ey, 0, searchPathType);
   if (!hasResult(data)) {
-    console.log(`ODsay 도시내 결과 없음 (${sx},${sy}→${ex},${ey}) → 광역(SearchType=1) 재시도`);
     data = await callOdsay(sx, sy, ex, ey, 1, searchPathType);
   }
   return data;
@@ -142,11 +174,35 @@ const dedup = (coords) =>
     return coord[0] !== prev[0] || coord[1] !== prev[1];
   });
 
+// 두 구간 결과 합산
+const mergeRoutes = (routeA, routeB) => ({
+  allCoords: [
+    ...(routeA?.allCoords || []),
+    ...(routeB?.allCoords || []),
+  ],
+  info: {
+    totalTime: (routeA?.info?.totalTime ?? 0) + (routeB?.info?.totalTime ?? 0) || null,
+    payment: (routeA?.info?.payment ?? 0) + (routeB?.info?.payment ?? 0) || null,
+    totalDistance: (routeA?.info?.totalDistance ?? 0) + (routeB?.info?.totalDistance ?? 0) || null,
+    transferCount: (routeA?.info?.transferCount ?? 0) + (routeB?.info?.transferCount ?? 0),
+    busTransitCount: (routeA?.info?.busTransitCount ?? 0) + (routeB?.info?.busTransitCount ?? 0),
+    subwayTransitCount: (routeA?.info?.subwayTransitCount ?? 0) + (routeB?.info?.subwayTransitCount ?? 0),
+  },
+  transitDetail: [
+    ...(routeA?.transitDetail || []),
+    ...(routeB?.transitDetail || []),
+  ],
+});
+
 // ODsay 경로 검색 (대중교통: 버스+지하철 통합)
-// GET /api/transit/route?sx=경도&sy=위도&ex=경도&ey=위도&mode=transit
-// SearchPathType: 0=최적(혼합) — 버스·지하철 통합 최적 경로 사용
-// SearchType: 0=도시내, 1=도시간(광역) — 결과 없으면 광역으로 자동 폴백
-// 광역+도시내 연계: 두 지역을 경유하는 경우 중간 분할 탐색으로 구간 이어 붙임
+// GET /api/transit/route?sx=경도&sy=위도&ex=경도&ey=위도
+//
+// 검색 전략 (3단계):
+//   1단계: 전체 구간 단일 탐색 (도시내 → 광역 폴백)
+//   2단계: 50km 미만 → 중앙값 pivot 단순 분할
+//          50km 이상 → KTX 주요역 pivot 순서대로 시도 (최대 3개)
+//   3단계: 모두 실패 → longDistance:true 반환 (기차 이용 안내)
+//
 // 반환 단위: totalTime=분, totalDistance=m (Map.jsx에서 변환)
 router.get('/route', async (req, res) => {
   try {
@@ -156,10 +212,15 @@ router.get('/route', async (req, res) => {
       return res.status(400).json({ message: '출발/도착 좌표가 필요합니다 (sx, sy, ex, ey)' });
     }
 
-    // SearchPathType=0: 최적(버스+지하철 혼합) — 버스/지하철 구분 없이 최적 경로
+    const sxNum = parseFloat(sx);
+    const syNum = parseFloat(sy);
+    const exNum = parseFloat(ex);
+    const eyNum = parseFloat(ey);
+
+    // SearchPathType=0: 최적(버스+지하철 혼합)
     const searchPathType = 0;
 
-    // ── 1단계: 전체 구간 단일 검색 (도시내 → 광역 폴백) ──
+    // ── 1단계: 전체 구간 단일 검색 ──
     const fullData = await callOdsayWithFallback(sx, sy, ex, ey, searchPathType);
 
     if (fullData.error) {
@@ -168,79 +229,94 @@ router.get('/route', async (req, res) => {
     }
 
     if (hasResult(fullData)) {
-      // 단일 검색으로 경로를 찾은 경우 바로 반환
       const routeData = extractRouteData(fullData);
       const coords = dedup(routeData.allCoords);
       return res.json({
         coords: coords.length >= 2 ? coords : null,
         info: routeData.info,
         transitDetail: routeData.transitDetail,
+        longDistance: false,
       });
     }
 
-    // ── 2단계: 단일 검색 실패 → 중간 지점(pivot) 분할 탐색 ──
-    // 출발지와 도착지가 서로 다른 도시권에 걸쳐 있을 때
-    // (예: 서울역 → 오송역)
-    // → 출발지 도시 내 대중교통 + 도착지 도시 내 대중교통 두 구간으로 분리해 이어 붙인다
-    console.log('ODsay 전체 경로 없음 → 분할 탐색(pivot) 시도');
+    // ── 2단계: 분할 탐색 ──
+    console.log('ODsay 전체 경로 없음 → 분할 탐색 시도');
 
-    const sxNum = parseFloat(sx);
-    const syNum = parseFloat(sy);
-    const exNum = parseFloat(ex);
-    const eyNum = parseFloat(ey);
+    const distKm = haversineKm(syNum, sxNum, eyNum, exNum);
+    console.log(`출발-도착 직선 거리: ${distKm.toFixed(1)}km`);
 
-    // pivot: 출발-도착 중간 좌표
-    const pivotX = ((sxNum + exNum) / 2).toFixed(6);
-    const pivotY = ((syNum + eyNum) / 2).toFixed(6);
+    // pivot 후보 목록 결정
+    // 50km 이상: 두 지점 사이에 위치하는 KTX역을 거리 기준으로 필터링 후 우선순위 정렬
+    // 50km 미만: 단순 중앙값 pivot 1개
+    let pivotCandidates = [];
 
-    // 출발 → pivot, pivot → 도착 병렬 검색
-    const [dataA, dataB] = await Promise.all([
-      callOdsayWithFallback(sx, sy, pivotX, pivotY, searchPathType),
-      callOdsayWithFallback(pivotX, pivotY, ex, ey, searchPathType),
-    ]);
+    if (distKm >= 50) {
+      // 출발-도착 직선 경로의 bounding box (약간 여유 ±0.5도) 안에 있는 KTX역만 필터
+      const minLat = Math.min(syNum, eyNum) - 0.5;
+      const maxLat = Math.max(syNum, eyNum) + 0.5;
+      const minLng = Math.min(sxNum, exNum) - 0.5;
+      const maxLng = Math.max(sxNum, exNum) + 0.5;
 
-    const routeA = hasResult(dataA) ? extractRouteData(dataA) : null;
-    const routeB = hasResult(dataB) ? extractRouteData(dataB) : null;
+      const filtered = KTX_PIVOTS.filter(p =>
+        p.y >= minLat && p.y <= maxLat && p.x >= minLng && p.x <= maxLng
+      );
 
-    if (!routeA && !routeB) {
-      // 분할 탐색도 실패 → 결과 없음 반환
-      console.log('ODsay 분할 탐색도 실패');
-      return res.json({ coords: null, info: null, transitDetail: null });
+      // 두 endpoint 중간값과의 거리 순으로 정렬 (중간에 가장 가까운 역 우선)
+      const midLat = (syNum + eyNum) / 2;
+      const midLng = (sxNum + exNum) / 2;
+      filtered.sort((a, b) =>
+        haversineKm(midLat, midLng, a.y, a.x) - haversineKm(midLat, midLng, b.y, b.x)
+      );
+
+      // 상위 3개 + 항상 단순 중앙값도 마지막 후보로 추가
+      pivotCandidates = filtered.slice(0, 3).map(p => ({
+        name: p.name, x: p.x.toFixed(6), y: p.y.toFixed(6),
+      }));
+      console.log(`KTX pivot 후보: ${pivotCandidates.map(p => p.name).join(', ')}`);
     }
 
-    // 두 구간 합산
-    const mergedCoords = [
-      ...(routeA?.allCoords || []),
-      ...(routeB?.allCoords || []),
-    ];
+    // 50km 미만이거나 KTX pivot 후보가 없으면 단순 중앙값 추가
+    pivotCandidates.push({
+      name: '중간지점',
+      x: ((sxNum + exNum) / 2).toFixed(6),
+      y: ((syNum + eyNum) / 2).toFixed(6),
+    });
 
-    const mergedInfo = {
-      totalTime:
-        (routeA?.info?.totalTime ?? 0) + (routeB?.info?.totalTime ?? 0) || null,
-      payment:
-        (routeA?.info?.payment ?? 0) + (routeB?.info?.payment ?? 0) || null,
-      totalDistance:
-        (routeA?.info?.totalDistance ?? 0) + (routeB?.info?.totalDistance ?? 0) || null,
-      transferCount:
-        (routeA?.info?.transferCount ?? 0) + (routeB?.info?.transferCount ?? 0),
-      busTransitCount:
-        (routeA?.info?.busTransitCount ?? 0) + (routeB?.info?.busTransitCount ?? 0),
-      subwayTransitCount:
-        (routeA?.info?.subwayTransitCount ?? 0) + (routeB?.info?.subwayTransitCount ?? 0),
-    };
+    // pivot 후보 순서대로 시도 — 첫 번째 성공한 결과 사용
+    for (const pivot of pivotCandidates) {
+      console.log(`  pivot 시도: ${pivot.name} (${pivot.x}, ${pivot.y})`);
 
-    const mergedTransitDetail = [
-      ...(routeA?.transitDetail || []),
-      ...(routeB?.transitDetail || []),
-    ];
+      const [dataA, dataB] = await Promise.all([
+        callOdsayWithFallback(sx, sy, pivot.x, pivot.y, searchPathType),
+        callOdsayWithFallback(pivot.x, pivot.y, ex, ey, searchPathType),
+      ]);
 
-    const coords = dedup(mergedCoords);
-    console.log(`ODsay 분할 탐색 성공: A구간 ${routeA ? '✓' : '✗'}, B구간 ${routeB ? '✓' : '✗'}, 좌표 ${coords.length}개`);
+      const routeA = hasResult(dataA) ? extractRouteData(dataA) : null;
+      const routeB = hasResult(dataB) ? extractRouteData(dataB) : null;
 
+      if (!routeA && !routeB) continue;
+
+      // 하나라도 성공하면 합산 반환
+      const merged = mergeRoutes(routeA, routeB);
+      const coords = dedup(merged.allCoords);
+
+      console.log(`  ✓ pivot [${pivot.name}] 성공: A${routeA ? '✓' : '✗'} B${routeB ? '✓' : '✗'}, 좌표 ${coords.length}개`);
+
+      return res.json({
+        coords: coords.length >= 2 ? coords : null,
+        info: merged.info,
+        transitDetail: merged.transitDetail,
+        longDistance: distKm >= 50,
+      });
+    }
+
+    // ── 3단계: 모든 pivot 실패 ──
+    console.log('ODsay 분할 탐색 모두 실패');
     return res.json({
-      coords: coords.length >= 2 ? coords : null,
-      info: mergedInfo,
-      transitDetail: mergedTransitDetail,
+      coords: null,
+      info: null,
+      transitDetail: null,
+      longDistance: distKm >= 50, // 50km 이상이면 기차 안내 표시
     });
 
   } catch (error) {

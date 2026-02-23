@@ -36,7 +36,8 @@ const VALHALLA_COSTING_MAP = {
 const transitCache = {};
 
 // ODsay API: bus/subway 통합, SearchPathType=0 최적 경로
-// 반환: { coords, info: {totalTime(분), totalDistance(m)}, transitDetail } 또는 { info } (coords 없어도 info 반환)
+// 반환: { coords, info, transitDetail, longDistance } 또는 null
+// longDistance=true: 50km 이상 광역 구간에서 ODsay 경로 없음 → 기차 안내 표시용
 const fetchTransitRoute = async (fromLat, fromLng, toLat, toLng) => {
   const cacheKey = `transit-${fromLat},${fromLng}-${toLat},${toLng}`;
   if (transitCache[cacheKey] !== undefined) return transitCache[cacheKey];
@@ -50,9 +51,15 @@ const fetchTransitRoute = async (fromLat, fromLng, toLat, toLng) => {
     const data = await response.json();
 
     // coords가 없어도 info(시간/거리)가 있으면 반환 (직선+info 표시)
-    const result = (data.info != null)
-      ? { coords: data.coords || null, info: data.info, transitDetail: data.transitDetail || [] }
-      : null;
+    // longDistance: 50km 이상 광역에서 ODsay 경로를 찾지 못한 경우 true
+    const result = (data.info != null || data.longDistance)
+      ? {
+          coords: data.coords || null,
+          info: data.info || null,
+          transitDetail: data.transitDetail || [],
+          longDistance: data.longDistance || false,
+        }
+      : { coords: null, info: null, transitDetail: [], longDistance: data.longDistance || false };
     transitCache[cacheKey] = result;
     return result;
   } catch (error) {
@@ -246,9 +253,10 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
 
         let positions   = [[from.lat, from.lng], [to.lat, to.lng]];
         let isRealRoute = false;
-        let segTime     = null;
-        let segDistance = null;
+        let segTime       = null;
+        let segDistance   = null;
         let transitDetail = null;
+        let longDistance  = false;
         let streetNames   = null;
         let hasToll       = false;
 
@@ -278,6 +286,7 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
             segDistance = (d != null && d > 0) ? d / 1000 : null; // m  → km
           }
           transitDetail = transitResult?.transitDetail || null;
+          longDistance  = transitResult?.longDistance || false;
         }
         // train, ship, plane → 직선 유지
 
@@ -293,6 +302,7 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
           transitDetail,
           streetNames,
           hasToll,
+          longDistance,
         });
       }
 
@@ -389,6 +399,22 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
                         · {name}
                       </div>
                     ))}
+                  </div>
+                )}
+                {/* 광역 구간 기차 이용 안내 (ODsay 경로 없음 + 50km 이상) */}
+                {seg.longDistance && (!seg.transitDetail || seg.transitDetail.length === 0) && (
+                  <div style={{
+                    borderTop: '1px solid #e5e7eb', paddingTop: '6px', marginTop: '4px',
+                    background: '#fef3c7', borderRadius: '6px', padding: '8px 10px',
+                  }}>
+                    <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#92400e', marginBottom: '3px' }}>
+                      🚆 장거리 구간 안내
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#78350f', lineHeight: '1.5' }}>
+                      이 구간은 버스·지하철 직통 경로가 없습니다.<br/>
+                      <strong>KTX·SRT·무궁화 등 기차 이용</strong>을 추천합니다.<br/>
+                      이동수단을 <strong>'기차'</strong>로 변경하면 예약번호를 저장할 수 있습니다.
+                    </div>
                   </div>
                 )}
                 {/* 대중교통 환승 상세 */}

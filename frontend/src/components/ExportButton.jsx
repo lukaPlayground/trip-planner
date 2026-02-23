@@ -92,6 +92,7 @@ export const useExport = ({ plan, places, routeInfo, routeSegments = [], mapCont
     const distStr = seg?.distance != null ? `${Number(seg.distance).toFixed(1)}km` : '';
     const hasToll = transport === 'car' && seg?.hasToll === true;
     const hasTransit = seg?.transitDetail && seg.transitDetail.length > 0;
+    const showLongDistanceHint = transport === 'bus' && seg?.longDistance && !hasTransit;
 
     const metaHtml = (timeStr || distStr) ? `
       <div style="font-size:11px;color:#64748b;margin-top:3px;">
@@ -104,6 +105,12 @@ export const useExport = ({ plan, places, routeInfo, routeSegments = [], mapCont
       <div style="font-size:11px;color:#d97706;margin-top:2px;">🎫 ${place.reservation}</div>` : '';
 
     const transitHtml = hasTransit ? buildTransitDetailHtml(seg.transitDetail) : '';
+
+    const longDistanceHtml = showLongDistanceHint ? `
+      <div style="margin-top:5px;padding:6px 8px;background:#fef3c7;border-radius:6px;border-left:3px solid #f59e0b;">
+        <div style="font-size:11px;font-weight:bold;color:#92400e;margin-bottom:2px;">🚆 장거리 구간 — 기차 이용 추천</div>
+        <div style="font-size:11px;color:#78350f;">버스·지하철 직통 경로 없음. KTX·SRT·무궁화 등 기차 이용 권장</div>
+      </div>` : '';
 
     return `
       <div style="
@@ -121,6 +128,7 @@ export const useExport = ({ plan, places, routeInfo, routeSegments = [], mapCont
         ${metaHtml}
         ${reservationHtml}
         ${transitHtml}
+        ${longDistanceHtml}
       </div>`;
   };
 
@@ -293,42 +301,5 @@ export const useExport = ({ plan, places, routeInfo, routeSegments = [], mapCont
     }
   };
 
-  // 화면 캡처 - 사이드바 목록 영역만 캡처 (지도 타일 CORS 문제 회피)
-  // dashboard-main 전체 대신 목록 HTML을 별도 생성해 캡처
-  const exportScreenshot = async () => {
-    if (!plan || places.length === 0) return;
-    setExporting('img');
-    try {
-      // 목록 HTML을 화면 밖에 렌더링 후 캡처 (CORS 이슈 없음)
-      const container = document.createElement('div');
-      container.style.position = 'fixed';
-      container.style.left = '-9999px';
-      container.style.top = '0';
-      container.style.zIndex = '-1';
-      container.innerHTML = createListHtml();
-      document.body.appendChild(container);
-
-      const listElement = container.querySelector('#trip-print');
-      const canvas = await html2canvas(listElement, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        windowWidth: 794 + 88,
-      });
-      document.body.removeChild(container);
-
-      const link = document.createElement('a');
-      link.download = `${plan.planName}-여행계획.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-    } catch (error) {
-      console.error('화면 캡처 실패:', error);
-      alert('화면 캡처에 실패했습니다.');
-    } finally {
-      setExporting('');
-    }
-  };
-
-  return { exportToPDF, exportScreenshot, exporting };
+  return { exportToPDF, exporting };
 };

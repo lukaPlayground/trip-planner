@@ -76,6 +76,7 @@ const SegmentCard = ({ place, seg }) => {
   const distStr = seg?.distance != null ? `${Number(seg.distance).toFixed(1)}km` : null;
   const hasToll = transport === 'car' && seg?.hasToll === true;
   const hasTransit = seg?.transitDetail && seg.transitDetail.length > 0;
+  const showLongDistanceHint = transport === 'bus' && seg?.longDistance && !hasTransit;
 
   return (
     <div className="relative flex items-stretch px-1 my-0.5">
@@ -111,6 +112,16 @@ const SegmentCard = ({ place, seg }) => {
         {/* 환승 상세 (대중교통) */}
         {hasTransit && (
           <TransitDetail transitDetail={seg.transitDetail} />
+        )}
+
+        {/* 광역 구간 기차 이용 안내 */}
+        {showLongDistanceHint && (
+          <div className="mt-1.5 p-2 rounded-lg bg-amber-50 border border-amber-200">
+            <div className="text-xs font-semibold text-amber-800 mb-0.5">🚆 장거리 구간 — 기차 이용 추천</div>
+            <p className="text-xs text-amber-700 leading-relaxed">
+              버스·지하철 직통 경로가 없습니다. KTX·SRT·무궁화 등 기차 이용을 추천합니다.
+            </p>
+          </div>
         )}
       </div>
     </div>
