@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const path = require('path');
+const fs = require('fs');
 
 const ODSAY_API_KEY = process.env.ODSAY_API_KEY;
 const ODSAY_BASE = 'https://api.odsay.com/v1/api';
@@ -7,6 +9,11 @@ const ODSAY_BASE = 'https://api.odsay.com/v1/api';
 // ODsay는 등록된 도메인(Origin) 기반 인증을 사용한다.
 // 백엔드에서 Origin: http://localhost:5173 헤더를 추가해서 프록시 처리한다.
 const ODSAY_ORIGIN = 'http://localhost:5173';
+
+// 코레일 역 목록 (공공데이터포털 '한국철도공사_역 위치 정보', 202개 역)
+const KORAIL_STATIONS = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '../data/korail-stations.json'), 'utf-8')
+);
 
 // KTX/SRT 주요 환승 거점역 (경도, 위도) — 광역 분할 pivot 후보
 // 실제 역 좌표 기준으로 정렬 (서울권 → 충청권 → 영남권 → 호남권)
@@ -323,6 +330,54 @@ router.get('/route', async (req, res) => {
     console.error('Transit route error:', error.message);
     res.status(500).json({ message: '대중교통 경로 조회 실패', error: error.message });
   }
+});
+
+// ── 기차 구간 정보 조회 ──
+// GET /api/transit/train?fromLat=&fromLng=&toLat=&toLng=
+//
+// 출발/도착 좌표에서 가장 가까운 코레일 역을 탐색하고,
+// 두 역 사이의 거리 기반 예상 소요시간을 반환한다.
+// API 필터링 미지원으로 실시간 시간표 대신 거리 기반 추정치를 제공한다.
+//
+// 평균 속도 기준: KTX~무궁화 혼합 → 150km/h (보수적 추정)
+router.get('/train', (req, res) => {
+  const { fromLat, fromLng, toLat, toLng } = req.query;
+
+  if (!fromLat || !fromLng || !toLat || !toLng) {
+    return res.status(400).json({ message: '출발/도착 좌표가 필요합니다' });
+  }
+
+  const fLat = parseFloat(fromLat);
+  const fLng = parseFloat(fromLng);
+  const tLat = parseFloat(toLat);
+  const tLng = parseFloat(toLng);
+
+  // 가장 가까운 역 탐색
+  const nearest = (lat, lng) =>
+    KORAIL_STATIONS.reduce((best, stn) => {
+      const d = haversineKm(lat, lng, stn.lat, stn.lng);
+      return d < best.dist ? { stn, dist: d } : best;
+    }, { stn: null, dist: Infinity }).stn;
+
+  const deptStn = nearest(fLat, fLng);
+  const arrStn  = nearest(tLat, tLng);
+
+  if (!deptStn || !arrStn) {
+    return res.status(500).json({ message: '역 탐색 실패' });
+  }
+
+  // 역 간 직선 거리 (km)
+  const distKm = haversineKm(deptStn.lat, deptStn.lng, arrStn.lat, arrStn.lng);
+
+  // 평균 150km/h 기준 소요시간 (분)
+  const estimatedMinutes = Math.round((distKm / 150) * 60);
+
+  res.json({
+    deptStation: { name: deptStn.name, lat: deptStn.lat, lng: deptStn.lng, region: deptStn.region },
+    arrStation:  { name: arrStn.name,  lat: arrStn.lat,  lng: arrStn.lng,  region: arrStn.region  },
+    distKm:      Math.round(distKm * 10) / 10,
+    estimatedMinutes,
+  });
 });
 
 module.exports = router;

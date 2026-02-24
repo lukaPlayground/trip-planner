@@ -123,6 +123,29 @@ const SegmentCard = ({ place, seg }) => {
             </p>
           </div>
         )}
+
+        {/* 기차 구간 — 역 정보 + 코레일 예약 링크 */}
+        {transport === 'train' && seg?.trainInfo && (
+          <div className="mt-1.5 p-2 rounded-lg bg-violet-50 border border-violet-200">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <span className="text-xs font-semibold text-violet-800">🚆 역 정보</span>
+              <a
+                href="https://www.korail.com/ticket/search/general"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-medium text-violet-600 hover:text-violet-800 transition-colors"
+              >
+                코레일 예약 ↗
+              </a>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-violet-700">
+              <span className="font-medium">{seg.trainInfo.deptStation.name}역</span>
+              <span className="text-violet-400">→</span>
+              <span className="font-medium">{seg.trainInfo.arrStation.name}역</span>
+              <span className="ml-auto text-violet-400">{seg.trainInfo.distKm}km</span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

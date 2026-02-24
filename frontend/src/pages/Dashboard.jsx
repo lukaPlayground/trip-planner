@@ -22,6 +22,7 @@ const Dashboard = () => {
   const [saveMessage, setSaveMessage] = useState('');
   const [routeInfo, setRouteInfo] = useState(null);
   const [routeSegments, setRouteSegments] = useState([]); // 구간별 소요시간/거리/환승정보
+  const [selectedSegmentIndex, setSelectedSegmentIndex] = useState(null);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [shareToast, setShareToast] = useState('');
   const [mobileTab, setMobileTab] = useState('map'); // 'map' | 'list'
@@ -453,6 +454,12 @@ const Dashboard = () => {
               setRouteSegments(segments || []);
             }}
             mapContainerRef={mapContainerRef}
+            selectedSegmentIndex={selectedSegmentIndex}
+            onSegmentClick={(i) => {
+              setSelectedSegmentIndex(i);
+              // 모바일: 지도 탭 → 리스트 탭으로 전환
+              setMobileTab('list');
+            }}
           />
         </div>
 
@@ -497,6 +504,7 @@ const Dashboard = () => {
                 <PlaceList
                   places={places}
                   routeSegments={routeSegments}
+                  selectedSegmentIndex={selectedSegmentIndex}
                   onReorder={handleReorder}
                   onToggleCheck={handleToggleCheck}
                   onDelete={handleDelete}

@@ -92,6 +92,32 @@ const decodePolyline6 = (encoded) => {
   return coords;
 };
 
+// ── 기차 경로 캐시 ──
+const trainCache = {};
+
+// 코레일 역 탐색 API: 출발/도착 좌표 → 가장 가까운 역 반환
+// 반환: { deptStation, arrStation, distKm, estimatedMinutes } 또는 null
+const fetchTrainRoute = async (fromLat, fromLng, toLat, toLng) => {
+  const cacheKey = `train-${fromLat},${fromLng}-${toLat},${toLng}`;
+  if (trainCache[cacheKey] !== undefined) return trainCache[cacheKey];
+
+  try {
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+    const url = `${apiBase}/transit/train?fromLat=${fromLat}&fromLng=${fromLng}&toLat=${toLat}&toLng=${toLng}`;
+    const response = await fetch(url);
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+
+    trainCache[cacheKey] = data;
+    return data;
+  } catch (error) {
+    console.warn('기차 역 탐색 실패:', error.message);
+    trainCache[cacheKey] = null;
+    return null;
+  }
+};
+
 // ── 경로 캐시 ──
 const routeCache = {};
 
@@ -224,7 +250,7 @@ const FitBounds = ({ places }) => {
 };
 
 // ── Map 컴포넌트 ──
-const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
+const Map = ({ places, onRouteUpdate, mapContainerRef, onSegmentClick, selectedSegmentIndex }) => {
   const [routeSegments, setRouteSegments] = useState([]);
   const abortRef = useRef(null);
 
@@ -269,7 +295,7 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
           positions: [[from.lat, from.lng], [to.lat, to.lng]],
           style, transport, from: from.name, to: to.name,
           isRoadRoute: false, time: null, distance: null,
-          transitDetail: null, longDistance: false, streetNames: null, hasToll: false,
+          transitDetail: null, longDistance: false, streetNames: null, hasToll: false, trainInfo: null,
         };
       });
 
@@ -301,6 +327,7 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
         let longDistance  = false;
         let streetNames   = null;
         let hasToll       = false;
+        let trainInfo     = null;
 
         if (costing) {
           // Valhalla 도로 기반 라우팅
@@ -328,8 +355,19 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
           }
           transitDetail = transitResult?.transitDetail || null;
           longDistance  = transitResult?.longDistance || false;
+        } else if (transport === 'train') {
+          // 코레일 역 탐색: 출발/도착 좌표 → 가장 가까운 역 → 역 간 폴리라인
+          const trainResult = await fetchTrainRoute(from.lat, from.lng, to.lat, to.lng);
+          if (trainResult) {
+            const { deptStation, arrStation, distKm, estimatedMinutes } = trainResult;
+            // 역 좌표로 폴리라인 갱신 (장소 좌표 → 역 좌표)
+            positions   = [[deptStation.lat, deptStation.lng], [arrStation.lat, arrStation.lng]];
+            segDistance = distKm;
+            segTime     = estimatedMinutes * 60; // 초 단위
+            trainInfo   = trainResult;
+          }
         }
-        // train, ship, plane → 직선 유지
+        // ship, plane → 직선 유지
 
         if (thisRequest.cancelled) return;
 
@@ -339,7 +377,7 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
           from: from.name, to: to.name,
           isRoadRoute: isRealRoute,
           time: segTime, distance: segDistance,
-          transitDetail, streetNames, hasToll, longDistance,
+          transitDetail, streetNames, hasToll, longDistance, trainInfo,
         };
 
         setRouteSegments([...segments]);
@@ -376,119 +414,26 @@ const Map = ({ places, onRouteUpdate, mapContainerRef }) => {
         <FitBounds places={places} />
 
         {/* 경로선 */}
-        {routeSegments.map((seg, i) => (
-          <Polyline
-            key={`route-${i}-${seg.positions.length}`}
-            positions={seg.positions}
-            pathOptions={{
-              color:     seg.style.color,
-              weight:    seg.style.weight,
-              opacity:   0.85,
-              dashArray: seg.style.dashArray,
-              lineCap:   'round',
-              lineJoin:  'round',
-            }}
-          >
-            <Popup minWidth={200}>
-              <div style={{ fontSize: '13px', lineHeight: '1.6', maxWidth: '260px' }}>
-                {/* 출발 → 도착 */}
-                <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
-                  {seg.from} → {seg.to}
-                </div>
-                {/* 이동수단 + 거리 + 시간 */}
-                <div style={{ color: seg.style.color, marginBottom: '4px' }}>
-                  {seg.style.label}
-                  {seg.distance != null && (
-                    <span style={{ color: '#6b7280' }}> · {seg.distance.toFixed(1)}km</span>
-                  )}
-                  {seg.time != null && (
-                    <span style={{ color: '#6b7280' }}> · {fmtTime(seg.time)}</span>
-                  )}
-                </div>
-                {/* 유료도로 안내 (자동차) */}
-                {seg.hasToll && (
-                  <div style={{ color: '#d97706', fontSize: '11px', marginBottom: '4px' }}>
-                    🛣️ 유료도로 포함 구간
-                  </div>
-                )}
-                {/* 바이크 주요 경유 도로 */}
-                {seg.streetNames && seg.streetNames.length > 0 && (
-                  <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '6px', marginTop: '4px' }}>
-                    <div style={{ fontSize: '11px', color: '#7c3aed', fontWeight: 'bold', marginBottom: '3px' }}>
-                      🛵 주요 경유 도로
-                    </div>
-                    {seg.streetNames.map((name, ni) => (
-                      <div key={ni} style={{ fontSize: '11px', color: '#374151', padding: '1px 0' }}>
-                        · {name}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {/* 광역 구간 기차 이용 안내 (ODsay 경로 없음 + 50km 이상) */}
-                {seg.longDistance && (!seg.transitDetail || seg.transitDetail.length === 0) && (
-                  <div style={{
-                    borderTop: '1px solid #e5e7eb', paddingTop: '6px', marginTop: '4px',
-                    background: '#fef3c7', borderRadius: '6px', padding: '8px 10px',
-                  }}>
-                    <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#92400e', marginBottom: '3px' }}>
-                      🚆 장거리 구간 안내
-                    </div>
-                    <div style={{ fontSize: '11px', color: '#78350f', lineHeight: '1.5' }}>
-                      이 구간은 버스·지하철 직통 경로가 없습니다.<br/>
-                      <strong>KTX·SRT·무궁화 등 기차 이용</strong>을 추천합니다.<br/>
-                      이동수단을 <strong>'기차'</strong>로 변경하면 예약번호를 저장할 수 있습니다.
-                    </div>
-                  </div>
-                )}
-                {/* 대중교통 환승 상세 */}
-                {seg.transitDetail && seg.transitDetail.length > 0 && (
-                  <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '6px', marginTop: '4px' }}>
-                    {seg.transitDetail.map((d, di) => {
-                      if (d.type === 'walk') {
-                        return (
-                          <div key={di} style={{ color: '#9ca3af', fontSize: '11px', margin: '3px 0' }}>
-                            🚶 도보{d.sectionTime ? ` ${d.sectionTime}분` : ''}{d.distance ? ` (${d.distance}m)` : ''}
-                          </div>
-                        );
-                      }
-                      const icon = d.type === 'bus' ? '🚌' : '🚇';
-                      const lineColor = d.type === 'bus' ? '#3b82f6' : '#6366f1';
-                      return (
-                        <div key={di} style={{ margin: '4px 0' }}>
-                          <div style={{ marginBottom: '2px' }}>
-                            {d.lines.map((line, li) => (
-                              <span key={li} style={{
-                                display: 'inline-block', background: lineColor, color: 'white',
-                                fontSize: '11px', fontWeight: 'bold', padding: '1px 6px',
-                                borderRadius: '4px', marginRight: '3px',
-                              }}>
-                                {icon} {line}
-                              </span>
-                            ))}
-                            {d.sectionTime && (
-                              <span style={{ fontSize: '11px', color: '#9ca3af' }}>{d.sectionTime}분</span>
-                            )}
-                          </div>
-                          {d.boardStation && (
-                            <div style={{ fontSize: '11px', color: '#374151' }}>
-                              <span style={{ color: '#10b981', fontWeight: 'bold' }}>승차</span> {d.boardStation}
-                              {d.stationCount > 2 && (
-                                <span style={{ color: '#9ca3af' }}> → ({d.stationCount - 2}개 정류장) → </span>
-                              )}
-                              {d.alightStation && d.alightStation !== d.boardStation && (
-                                <> <span style={{ color: '#ef4444', fontWeight: 'bold' }}>하차</span> {d.alightStation}</>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </Popup>
-          </Polyline>
-        ))}
+        {routeSegments.map((seg, i) => {
+          const isSelected = selectedSegmentIndex === i;
+          return (
+            <Polyline
+              key={`route-${i}-${seg.positions.length}`}
+              positions={seg.positions}
+              pathOptions={{
+                color:     seg.style.color,
+                weight:    isSelected ? seg.style.weight + 3 : seg.style.weight,
+                opacity:   isSelected ? 1.0 : 0.75,
+                dashArray: seg.style.dashArray,
+                lineCap:   'round',
+                lineJoin:  'round',
+              }}
+              eventHandlers={{
+                click: () => onSegmentClick && onSegmentClick(i),
+              }}
+            />
+          );
+        })}
 
         {/* 마커 */}
         {places.map((place, index) => {
