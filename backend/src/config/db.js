@@ -1,12 +1,19 @@
 const mongoose = require('mongoose');
 
+// 연결 에러 이벤트 핸들러 — 없으면 uncaughtException으로 프로세스 종료됨
+mongoose.connection.on('error', (err) => {
+  console.error('Mongoose connection error event:', err.message);
+});
+mongoose.connection.on('disconnected', () => {
+  console.warn('MongoDB disconnected');
+});
+
 const connectDB = async () => {
   try {
     await mongoose.connect(process.env.MONGODB_URI);
     console.log('MongoDB Connected');
   } catch (error) {
     console.error('MongoDB Connection Error:', error.message);
-    // process.exit(1) 제거 — 서버는 유지, 헬스체크로 원인 진단 후 복구
   }
 };
 

@@ -3,6 +3,11 @@ const express = require('express');
 const cors = require('cors');
 const connectDB = require('./config/db');
 
+// 미처리 Promise rejection이 프로세스를 죽이지 않도록 방지
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection:', reason);
+});
+
 const app = express();
 
 connectDB();
