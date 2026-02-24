@@ -219,6 +219,9 @@ const SegmentCard = ({
   // 광역 대중교통 구간에서 ODsay 경로를 찾지 못한 경우 → 기차 이용 안내
   const showLongDistanceHint =
     currentTransport === 'bus' && seg?.longDistance && !hasTransitDetail;
+  // 200km+ 자전거/도보 구간 — Haversine 직선 폴백 경고
+  const showLongDistanceFallback =
+    (currentTransport === 'walk' || currentTransport === 'bicycle') && seg?.longDistanceFallback === true;
 
   return (
     <div className="relative flex items-stretch px-1" ref={cardRef}>
@@ -314,6 +317,21 @@ const SegmentCard = ({
           <div className="mt-1.5 flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-amber-50 border border-amber-200">
             <FaRoad size={10} className="text-amber-500 flex-shrink-0" />
             <span className="text-xs text-amber-700 font-medium">유료도로 포함 구간</span>
+          </div>
+        )}
+
+        {/* 200km+ 자전거/도보 장거리 폴백 경고 */}
+        {showLongDistanceFallback && (
+          <div className="mt-1.5 p-2.5 rounded-lg bg-orange-50 border border-orange-200">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className="text-sm">⚠️</span>
+              <span className="text-xs font-semibold text-orange-800">장거리 구간 — 소요시간 추정치</span>
+            </div>
+            <p className="text-xs text-orange-700 leading-relaxed">
+              200km를 초과하는 구간으로 경로 탐색에 실패했습니다.<br />
+              직선 거리 기반 평균 속도({currentTransport === 'bicycle' ? '자전거 15km/h' : '도보 5km/h'})로
+              소요시간을 추정했습니다.
+            </p>
           </div>
         )}
 

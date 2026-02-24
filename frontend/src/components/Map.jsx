@@ -121,6 +121,22 @@ const fetchTrainRoute = async (fromLat, fromLng, toLat, toLng) => {
 // ── 경로 캐시 ──
 const routeCache = {};
 
+// ── Haversine 거리 계산 (km) ──
+const haversineKm = (lat1, lng1, lat2, lng2) => {
+  const R = 6371;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+// 자전거/도보 장거리 분할 설정
+const VALHALLA_MAX_KM  = 190;  // Valhalla 허용 상한 (안전 마진 포함)
+const SPLIT_CHUNK_KM   = 170;  // 분할 시 각 구간 목표 길이
+const AVG_SPEED_KMH    = { pedestrian: 5, bicycle: 15 }; // 폴백용 평균 속도
+
 // Valhalla maneuvers에서 주요 도로명 추출
 const extractStreetNames = (raw) => {
   const names = [];
@@ -138,18 +154,12 @@ const extractStreetNames = (raw) => {
   return names.slice(0, 5);
 };
 
-// Valhalla 경로 요청
-// 핵심 수정: summary 레벨의 time/length를 추출해야 함
-// "summary":{"has_toll":true,...,"time":7752,"length":132.04,...}
-// → 기존 regex는 maneuver 레벨 첫 번째 "time" 값을 잡아서 2분으로 오출력됨
-const fetchRoute = async (fromLat, fromLng, toLat, toLng, costing, useTolls = true) => {
-  const cacheKey = `${fromLat},${fromLng}-${toLat},${toLng}-${costing}-${useTolls}`;
-  if (routeCache[cacheKey]) return routeCache[cacheKey];
-
+// ── Valhalla 단일 구간 호출 (캐시 없음, 거리 제한 없음) ──
+// fetchRoute 내부 및 분할 라우팅에서 재사용
+const fetchSingleRoute = async (fromLat, fromLng, toLat, toLng, costing, useTolls = true) => {
   try {
     const costingOptions = {};
     if (costing === 'auto') {
-      // 유료도로 사용 여부 제어
       costingOptions.auto = { use_tolls: useTolls ? 1.0 : 0.0 };
     }
 
@@ -180,7 +190,6 @@ const fetchRoute = async (fromLat, fromLng, toLat, toLng, costing, useTolls = tr
 
     // ── summary 레벨에서 time/length 추출 ──
     // "summary":{...,"time":7752.791,"length":132.042,...}
-    // summary 블록을 먼저 추출한 뒤 그 안에서 파싱
     const summaryMatch = raw.match(/"summary":\{([^}]+)\}/);
     let time = null;
     let distance = null;
@@ -199,14 +208,76 @@ const fetchRoute = async (fromLat, fromLng, toLat, toLng, costing, useTolls = tr
     // 바이크: 주요 도로명, 자동차: 유료도로 여부
     const streetNames = costing === 'motor_scooter' ? extractStreetNames(raw) : null;
 
-    const result = { coords, time, distance, streetNames, hasToll };
+    return { coords, time, distance, streetNames, hasToll };
+  } catch (error) {
+    console.warn('Valhalla 단일 구간 요청 실패:', error);
+  }
+  return null;
+};
+
+// ── Valhalla 경로 요청 (캐시 + 장거리 분할 라우팅) ──
+// 자전거/도보 200km+ 구간: 중간 waypoint 분할 → 각 구간 Valhalla 호출 → 합산
+// 분할 실패 시: Haversine 직선 + 평균 속도 추정 시간 (longDistanceFallback: true)
+const fetchRoute = async (fromLat, fromLng, toLat, toLng, costing, useTolls = true) => {
+  const cacheKey = `${fromLat},${fromLng}-${toLat},${toLng}-${costing}-${useTolls}`;
+  if (routeCache[cacheKey]) return routeCache[cacheKey];
+
+  const distKm = haversineKm(fromLat, fromLng, toLat, toLng);
+  const isLongDistance = (costing === 'pedestrian' || costing === 'bicycle') && distKm > VALHALLA_MAX_KM;
+
+  if (isLongDistance) {
+    // ── 분할 라우팅: 등간격 waypoints로 경로를 나눠 각각 Valhalla 호출 ──
+    const numChunks = Math.ceil(distKm / SPLIT_CHUNK_KM);
+    const waypoints = Array.from({ length: numChunks + 1 }, (_, i) => {
+      const t = i / numChunks;
+      return {
+        lat: fromLat + (toLat - fromLat) * t,
+        lng: fromLng + (toLng - fromLng) * t,
+      };
+    });
+
+    try {
+      // 각 분할 구간 병렬 호출
+      const chunkResults = await Promise.all(
+        waypoints.slice(0, -1).map((wp, i) =>
+          fetchSingleRoute(wp.lat, wp.lng, waypoints[i + 1].lat, waypoints[i + 1].lng, costing, useTolls)
+        )
+      );
+
+      const allOk = chunkResults.every(r => r?.coords && r.coords.length >= 2);
+
+      if (allOk) {
+        // 모든 구간 성공 → coords/time/distance 합산 (중복 접점 제거)
+        const coords   = chunkResults.flatMap((r, i) => i === 0 ? r.coords : r.coords.slice(1));
+        const time     = chunkResults.reduce((s, r) => s + (r.time || 0), 0);
+        const distance = chunkResults.reduce((s, r) => s + (r.distance || 0), 0);
+        const result = { coords, time, distance, streetNames: null, hasToll: false, longDistanceFallback: false };
+        routeCache[cacheKey] = result;
+        return result;
+      }
+    } catch (err) {
+      console.warn('분할 라우팅 실패:', err);
+    }
+
+    // ── 분할도 실패: Haversine 직선 거리 + 평균 속도 추정 폴백 ──
+    const speedKmh = AVG_SPEED_KMH[costing] ?? 5;
+    const estTimeSec = (distKm / speedKmh) * 3600;
+    const result = {
+      coords: [[fromLat, fromLng], [toLat, toLng]],
+      time: estTimeSec,
+      distance: distKm,
+      streetNames: null,
+      hasToll: false,
+      longDistanceFallback: true,  // SegmentCard에 경고 표시
+    };
     routeCache[cacheKey] = result;
     return result;
-  } catch (error) {
-    console.warn('Valhalla 경로 요청 실패:', error);
   }
 
-  return null;
+  // ── 일반 구간: 단일 Valhalla 호출 ──
+  const result = await fetchSingleRoute(fromLat, fromLng, toLat, toLng, costing, useTolls);
+  routeCache[cacheKey] = result;
+  return result;
 };
 
 // ── 커스텀 마커 ──
@@ -376,27 +447,29 @@ const Map = ({ places, onRouteUpdate, mapContainerRef, onSegmentClick, selectedS
         const style   = TRANSPORT_STYLES[transport] || TRANSPORT_STYLES.bus;
         const costing = VALHALLA_COSTING_MAP[transport];
 
-        let positions   = [[from.lat, from.lng], [to.lat, to.lng]];
-        let isRealRoute = false;
-        let segTime       = null;
-        let segDistance   = null;
-        let transitDetail = null;
-        let longDistance  = false;
-        let streetNames   = null;
-        let hasToll       = false;
-        let trainInfo     = null;
+        let positions           = [[from.lat, from.lng], [to.lat, to.lng]];
+        let isRealRoute         = false;
+        let segTime             = null;
+        let segDistance         = null;
+        let transitDetail       = null;
+        let longDistance        = false;
+        let longDistanceFallback = false;  // 200km+ 자전거/도보 Haversine 폴백 여부
+        let streetNames         = null;
+        let hasToll             = false;
+        let trainInfo           = null;
 
         if (costing) {
-          // Valhalla 도로 기반 라우팅
+          // Valhalla 도로 기반 라우팅 (자전거/도보 200km+ 시 분할 라우팅 또는 Haversine 폴백)
           const routeResult = await fetchRoute(from.lat, from.lng, to.lat, to.lng, costing);
           if (routeResult?.coords) {
             positions   = routeResult.coords;
             isRealRoute = positions.length > 2;
           }
-          segTime     = routeResult?.time     ?? null;
-          segDistance = routeResult?.distance ?? null;
-          streetNames = routeResult?.streetNames ?? null;
-          hasToll     = routeResult?.hasToll ?? false;
+          segTime              = routeResult?.time              ?? null;
+          segDistance          = routeResult?.distance          ?? null;
+          streetNames          = routeResult?.streetNames       ?? null;
+          hasToll              = routeResult?.hasToll           ?? false;
+          longDistanceFallback = routeResult?.longDistanceFallback ?? false;
         } else if (transport === 'bus' || transport === 'subway') {
           // ODsay 대중교통 (캐시 히트면 위 초기화 단계에서 이미 반영됨 — 재확인만)
           const transitResult = await fetchTransitRoute(from.lat, from.lng, to.lat, to.lng);
@@ -434,7 +507,7 @@ const Map = ({ places, onRouteUpdate, mapContainerRef, onSegmentClick, selectedS
           from: from.name, to: to.name,
           isRoadRoute: isRealRoute,
           time: segTime, distance: segDistance,
-          transitDetail, streetNames, hasToll, longDistance, trainInfo,
+          transitDetail, streetNames, hasToll, longDistance, longDistanceFallback, trainInfo,
         };
 
         setRouteSegments([...segments]);

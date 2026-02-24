@@ -159,7 +159,7 @@ function decodePolyline(encoded, precision = 6) {
 }
 ```
 
-**장거리 제한**: `bicycle`, `pedestrian` costing은 200km 이상 경로 계산 불가 (`Path distance exceeds the max distance limit` 에러). 장거리 자전거/도보 경로는 직선 폴백 처리가 필요하다.
+**장거리 제한**: `bicycle`, `pedestrian` costing은 200km 이상 경로 계산 불가 (`Path distance exceeds the max distance limit` 에러). → **분할 라우팅으로 해결** (아래 참고).
 
 ### ODsay LAB 대중교통 API
 
@@ -278,8 +278,6 @@ API 키는 [ITS 국가교통정보센터](https://www.its.go.kr)에서 회원가
 - [x] **모바일 반응형 최적화** (375px 대응)
 - [x] **여행 계획 공유 기능** (공개 링크, `/shared/:id` 읽기 전용 뷰)
 - [x] **공유/내보내기 통합 드롭다운** (링크공유 + PDF 저장)
-
-### 진행 예정
 - [x] **기차 API 연동** (2026.02)
   - 공공데이터포털 코레일 역 위치 정보 CSV (202개 역, 한국철도공사_역 위치 정보) → `backend/src/data/korail-stations.json`
   - `GET /api/transit/train`: 출발/도착 좌표 → Haversine 최근접 역 탐색 → 역 간 거리 + 소요시간(150km/h 추정) 반환
@@ -317,4 +315,19 @@ API 키는 [ITS 국가교통정보센터](https://www.its.go.kr)에서 회원가
   - 지하철: 1~9호선 + 수인분당·신분당·경의중앙·공항철도·경춘·GTX-A/B/C·우이신설·서해·경강·김포골드 호선별 공식 컬러
   - 버스: M(광역급행 진빨강)·N(심야 남색)·마을(연초록)·순환(노랑)·간선(파랑)·광역(빨강)·지선(초록) 번호 체계 기반 자동 분류
   - 노선 배지 컬러 + 해당 구간 패널 배경(첫 번째 노선 컬러 8% opacity) 자동 적용
-- [ ] 200km+ 자전거/도보 경로 폴백 개선
+- [x] **200km+ 자전거/도보 경로 분할 라우팅** (2026.02)
+  - **문제**: Valhalla `pedestrian`/`bicycle` costing은 ~200km 초과 시 `Path distance exceeds the max distance limit` 에러로 경로 계산 불가 → 기존: 직선 폴백 + 시간/거리 null
+  - **해결 1 — 분할 라우팅**: Haversine 직선 거리가 190km 초과 시 170km 단위로 구간 분할
+    - 등간격 waypoints 선형 보간 생성 (예: 450km → 3구간 × 150km)
+    - 각 분할 구간 Valhalla 병렬 호출 (`Promise.all`)
+    - 모두 성공 시 coords/time/distance 합산 (중복 접점 `slice(1)` 제거)
+    - 결과: 실제 도로 기반 경로 + 정확한 소요시간 (`longDistanceFallback: false`)
+  - **해결 2 — Haversine 추정 폴백**: 분할 라우팅도 실패 시
+    - 직선 좌표 + Haversine 거리 기반 평균 속도 추정 (자전거 15km/h, 도보 5km/h)
+    - `longDistanceFallback: true` 플래그 → SegmentCard에 경고 배지 자동 표시
+  - **구조 변경**: `fetchRoute` → `fetchSingleRoute` + `fetchRoute` 2-layer 구조로 리팩터링
+    - `fetchSingleRoute`: 순수 Valhalla 단일 호출 (캐시 없음, 거리 제한 없음)
+    - `fetchRoute`: 캐시 + 거리 판단 + 분할/폴백 조율
+
+### 진행 예정
+- [ ] (다음 기능)
