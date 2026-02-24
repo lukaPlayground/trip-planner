@@ -379,8 +379,21 @@ const FlyTo = ({ place }) => {
 // ── Map 컴포넌트 ──
 const Map = ({ places, onRouteUpdate, mapContainerRef, onSegmentClick, selectedSegmentIndex, focusedPlace }) => {
   const [routeSegments, setRouteSegments] = useState([]);
-  const [roadEvents, setRoadEvents] = useState([]);   // ITS VMS 전광판 이벤트
-  const abortRef = useRef(null);
+  const [roadEvents, setRoadEvents]       = useState([]);   // ITS VMS 전광판 이벤트
+  const [refreshKey, setRefreshKey]       = useState(0);    // 캐시 초기화 + 재계산 트리거
+  const [isRefreshing, setIsRefreshing]   = useState(false); // 새로고침 버튼 스피닝
+  const abortRef    = useRef(null);
+  const refreshingRef = useRef(false);   // buildSegments 내부에서 완료 감지용
+
+  // 모든 모듈 캐시 초기화 + 경로 재계산
+  const handleClearCache = () => {
+    Object.keys(routeCache).forEach(k => delete routeCache[k]);
+    Object.keys(transitCache).forEach(k => delete transitCache[k]);
+    Object.keys(trainCache).forEach(k => delete trainCache[k]);
+    refreshingRef.current = true;
+    setIsRefreshing(true);
+    setRefreshKey(k => k + 1);
+  };
 
   useEffect(() => {
     if (abortRef.current) abortRef.current.cancelled = true;
@@ -519,8 +532,14 @@ const Map = ({ places, onRouteUpdate, mapContainerRef, onSegmentClick, selectedS
       }
     };
 
-    buildSegments();
-  }, [places]);
+    buildSegments().then(() => {
+      // 수동 새로고침(handleClearCache) 완료 시 스피닝 해제
+      if (refreshingRef.current) {
+        refreshingRef.current = false;
+        setIsRefreshing(false);
+      }
+    });
+  }, [places, refreshKey]);
 
   // VMS 전광판 이벤트 (자동차/바이크 구간 있을 때만)
   useEffect(() => {
@@ -625,6 +644,21 @@ const Map = ({ places, onRouteUpdate, mapContainerRef, onSegmentClick, selectedS
           );
         })}
       </MapContainer>
+
+      {/* 경로 새로고침 버튼 (캐시 초기화 + 재계산) */}
+      {places.length >= 2 && (
+        <button
+          onClick={handleClearCache}
+          disabled={isRefreshing}
+          className="absolute bottom-4 right-4 bg-white/90 backdrop-blur-sm rounded-lg px-2.5 py-1.5 shadow-md z-[1000] text-xs font-medium text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-colors flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
+          title="경로 캐시를 초기화하고 다시 계산합니다"
+        >
+          <span className={`inline-block text-base leading-none ${isRefreshing ? 'animate-spin' : ''}`}>
+            ↺
+          </span>
+          <span>{isRefreshing ? '계산 중…' : '경로 새로고침'}</span>
+        </button>
+      )}
 
       {/* 범례 (subway·taxi 중복 제거) */}
       {places.length >= 2 && (
