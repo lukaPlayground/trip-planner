@@ -24,6 +24,11 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// 헬스체크 — MongoDB 연결과 무관하게 항상 응답
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', env: process.env.NODE_ENV, mongo: !!process.env.MONGODB_URI });
+});
+
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/plans', require('./routes/plans'));
 app.use('/api/places', require('./routes/places'));
