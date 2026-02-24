@@ -112,9 +112,13 @@ router.patch('/:id/share', auth, async (req, res) => {
       return res.status(404).json({ message: '계획을 찾을 수 없습니다' });
     }
 
-    plan.isPublic = !plan.isPublic;
-    await plan.save();
-    res.json({ isPublic: plan.isPublic, planId: plan._id });
+    const newIsPublic = !plan.isPublic;
+    // $set으로 해당 필드만 업데이트 (전체 문서 validation 불필요)
+    await Plan.updateOne(
+      { _id: req.params.id, userId: req.userId },
+      { $set: { isPublic: newIsPublic } }
+    );
+    res.json({ isPublic: newIsPublic, planId: plan._id });
   } catch (error) {
     res.status(500).json({ message: '서버 오류', error: error.message });
   }

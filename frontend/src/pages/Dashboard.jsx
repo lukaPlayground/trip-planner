@@ -23,6 +23,7 @@ const Dashboard = () => {
   const [routeInfo, setRouteInfo] = useState(null);
   const [routeSegments, setRouteSegments] = useState([]); // 구간별 소요시간/거리/환승정보
   const [selectedSegmentIndex, setSelectedSegmentIndex] = useState(null);
+  const [focusedPlace, setFocusedPlace] = useState(null); // 장소 클릭 → 지도 flyTo
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [shareToast, setShareToast] = useState('');
   const [mobileTab, setMobileTab] = useState('map'); // 'map' | 'list'
@@ -158,6 +159,24 @@ const Dashboard = () => {
     navigate('/');
   };
 
+  // 클립보드 복사 (HTTPS + HTTP 로컬호스트 모두 대응)
+  const copyToClipboard = async (text) => {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    // HTTP 환경 폴백: textarea + execCommand
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    if (!ok) throw new Error('execCommand copy failed');
+  };
+
   // 공유 링크 토글
   const handleToggleShare = async () => {
     if (!currentPlan) return;
@@ -172,8 +191,8 @@ const Dashboard = () => {
       if (isPublic) {
         const shareUrl = `${window.location.origin}/shared/${currentPlan._id}`;
         try {
-          await navigator.clipboard.writeText(shareUrl);
-          showToast(`링크 복사됨`);
+          await copyToClipboard(shareUrl);
+          showToast('링크 복사됨');
         } catch {
           showToast(`공유 링크: ${shareUrl}`);
         }
@@ -192,7 +211,7 @@ const Dashboard = () => {
     setShowShareMenu(false);
     const shareUrl = `${window.location.origin}/shared/${currentPlan._id}`;
     try {
-      await navigator.clipboard.writeText(shareUrl);
+      await copyToClipboard(shareUrl);
       showToast('링크 복사됨');
     } catch {
       showToast(`공유 링크: ${shareUrl}`);
@@ -455,6 +474,7 @@ const Dashboard = () => {
             }}
             mapContainerRef={mapContainerRef}
             selectedSegmentIndex={selectedSegmentIndex}
+            focusedPlace={focusedPlace}
             onSegmentClick={(i) => {
               setSelectedSegmentIndex(i);
               // 모바일: 지도 탭 → 리스트 탭으로 전환
@@ -511,6 +531,11 @@ const Dashboard = () => {
                   onUpdateNote={handleUpdateNote}
                   onUpdateTransport={handleUpdateTransport}
                   onUpdateReservation={handleUpdateReservation}
+                  onPlaceClick={(place) => {
+                    // 장소명 클릭 → 지도 flyTo + 모바일: 지도 탭으로 전환
+                    setFocusedPlace({ lat: place.lat, lng: place.lng, ts: Date.now() });
+                    setMobileTab('map');
+                  }}
                 />
               </div>
             </>

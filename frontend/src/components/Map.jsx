@@ -210,6 +210,49 @@ const fetchRoute = async (fromLat, fromLng, toLat, toLng, costing, useTolls = tr
 };
 
 // ── 커스텀 마커 ──
+// ── VMS 전광판 경고 아이콘 ──
+// roadGrad: '101'=고속도로(주황), '103'=국도(노랑), 기타(회색)
+const createVmsIcon = (roadGrad) => {
+  const bg = roadGrad === '101' ? '#f97316' : roadGrad === '103' ? '#eab308' : '#6b7280';
+  return L.divIcon({
+    className: '',
+    html: `<div style="background:${bg};color:white;border:2px solid rgba(255,255,255,0.9);border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 2px 5px rgba(0,0,0,0.35);cursor:pointer;">⚠</div>`,
+    iconSize:    [24, 24],
+    iconAnchor:  [12, 12],
+    popupAnchor: [0, -14],
+  });
+};
+
+// VMS 업데이트 시각 포맷: "20260224201250" → "24일 20:12 기준"
+const fmtVmsTime = (t) => {
+  if (!t || t.length < 12) return '';
+  return `${t.slice(6, 8)}일 ${t.slice(8, 10)}:${t.slice(10, 12)} 기준`;
+};
+
+// ── VMS 전광판 도로 이벤트 조회 ──
+// 자동차/바이크 구간이 있을 때 경로 bbox 내 VMS 데이터를 가져온다.
+const fetchRoadEvents = async (places) => {
+  const hasRoadSegment = places.some(p => ['car', 'taxi', 'motorcycle'].includes(p.transport));
+  if (!hasRoadSegment || places.length < 2) return [];
+
+  try {
+    const lats = places.map(p => p.lat);
+    const lngs = places.map(p => p.lng);
+    const pad  = 0.08; // ~9km 여유
+    const minX = (Math.min(...lngs) - pad).toFixed(6);
+    const maxX = (Math.max(...lngs) + pad).toFixed(6);
+    const minY = (Math.min(...lats) - pad).toFixed(6);
+    const maxY = (Math.max(...lats) + pad).toFixed(6);
+
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+    const res  = await fetch(`${apiBase}/transit/road-events?minX=${minX}&maxX=${maxX}&minY=${minY}&maxY=${maxY}`);
+    const data = await res.json();
+    return data.events || [];
+  } catch {
+    return [];
+  }
+};
+
 const createNumberedIcon = (number, checked) => {
   const bg = checked ? '#9ca3af' : '#3b82f6';
   return L.divIcon({
@@ -249,9 +292,23 @@ const FitBounds = ({ places }) => {
   return null;
 };
 
+// ── 장소 클릭 시 해당 위치로 부드럽게 이동 ──
+const FlyTo = ({ place }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!place) return;
+    const zoom = Math.max(map.getZoom(), 15);
+    map.flyTo([place.lat, place.lng], zoom, { animate: true, duration: 0.7 });
+  }, [place, map]);  // place 객체 참조가 바뀔 때마다 실행 (ts 필드로 보장)
+
+  return null;
+};
+
 // ── Map 컴포넌트 ──
-const Map = ({ places, onRouteUpdate, mapContainerRef, onSegmentClick, selectedSegmentIndex }) => {
+const Map = ({ places, onRouteUpdate, mapContainerRef, onSegmentClick, selectedSegmentIndex, focusedPlace }) => {
   const [routeSegments, setRouteSegments] = useState([]);
+  const [roadEvents, setRoadEvents] = useState([]);   // ITS VMS 전광판 이벤트
   const abortRef = useRef(null);
 
   useEffect(() => {
@@ -392,6 +449,12 @@ const Map = ({ places, onRouteUpdate, mapContainerRef, onSegmentClick, selectedS
     buildSegments();
   }, [places]);
 
+  // VMS 전광판 이벤트 (자동차/바이크 구간 있을 때만)
+  useEffect(() => {
+    setRoadEvents([]);
+    fetchRoadEvents(places).then(setRoadEvents);
+  }, [places]);
+
   // 시간 포맷 (초 → 시간/분)
   const fmtTime = (secs) => {
     if (secs == null) return null;
@@ -412,6 +475,7 @@ const Map = ({ places, onRouteUpdate, mapContainerRef, onSegmentClick, selectedS
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <FitBounds places={places} />
+        <FlyTo place={focusedPlace} />
 
         {/* 경로선 */}
         {routeSegments.map((seg, i) => {
@@ -435,7 +499,32 @@ const Map = ({ places, onRouteUpdate, mapContainerRef, onSegmentClick, selectedS
           );
         })}
 
-        {/* 마커 */}
+        {/* VMS 전광판 경고 마커 (자동차/바이크 구간) */}
+        {roadEvents.map((event, i) => (
+          <Marker
+            key={`vms-${i}`}
+            position={[event.lat, event.lng]}
+            icon={createVmsIcon(event.roadGrad)}
+          >
+            <Popup>
+              <div style={{ fontSize: '12px', maxWidth: '210px', lineHeight: '1.6' }}>
+                <div style={{ fontWeight: 700, marginBottom: 3 }}>
+                  {event.roadName
+                    ? `${event.roadName}${event.roadGrad === '101' ? ' (고속도로)' : event.roadGrad === '103' ? ' (국도)' : ''}`
+                    : event.routeNo ? `국도 ${event.routeNo}호선` : '도로 정보'}
+                </div>
+                <div>{event.message}</div>
+                {event.updatedAt && (
+                  <div style={{ color: '#9ca3af', fontSize: 10, marginTop: 4 }}>
+                    {fmtVmsTime(event.updatedAt)}
+                  </div>
+                )}
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+
+        {/* 장소 마커 */}
         {places.map((place, index) => {
           const style = TRANSPORT_STYLES[place.transport] || TRANSPORT_STYLES.bus;
           return (

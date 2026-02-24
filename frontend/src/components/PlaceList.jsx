@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { FaGripVertical, FaTrash, FaCheck, FaWalking, FaBicycle, FaMotorcycle, FaBus, FaSubway, FaTrain, FaCar, FaShip, FaPlane, FaTicketAlt, FaChevronRight, FaChevronDown, FaExchangeAlt, FaRoad, FaExternalLinkAlt } from 'react-icons/fa';
+import { FaGripVertical, FaTrash, FaCheck, FaWalking, FaBicycle, FaMotorcycle, FaBus, FaSubway, FaTrain, FaCar, FaShip, FaPlane, FaTicketAlt, FaChevronRight, FaChevronDown, FaExchangeAlt, FaRoad, FaExternalLinkAlt, FaMapMarkerAlt } from 'react-icons/fa';
 
 // bus/subway → 대중교통(transit)으로 통합: 내부 값 'bus' 유지 (Map.jsx 호환)
 // car/taxi → 자동차로 통합: 내부 값 'car' 유지, taxi 레거시 데이터는 car로 폴백
@@ -48,6 +48,74 @@ const formatSegTime = (secs) => {
 };
 
 // 대중교통 환승 패널 컴포넌트
+// ── 지하철 호선별 공식 컬러 ──
+const SUBWAY_LINE_COLORS = {
+  '1호선':        '#0052A4',
+  '2호선':        '#00A84D',
+  '3호선':        '#EF7C1C',
+  '4호선':        '#00A5DE',
+  '5호선':        '#996CAC',
+  '6호선':        '#CD7C2F',
+  '7호선':        '#747F00',
+  '8호선':        '#E6186C',
+  '9호선':        '#BDB092',
+  '수인분당선':   '#F5A200',
+  '분당선':       '#F5A200',
+  '신분당선':     '#D4003B',
+  '경의중앙선':   '#77C4A3',
+  '경의선':       '#77C4A3',
+  '중앙선':       '#77C4A3',
+  '공항철도':     '#0090D2',
+  '경춘선':       '#0C8E72',
+  'GTX-A':        '#9B1B30',
+  'GTX-B':        '#006AB6',
+  'GTX-C':        '#00923F',
+  '우이신설':     '#B0CE18',
+  '서해선':       '#81AAF9',
+  '경강선':       '#003DA5',
+  '김포골드라인': '#AD8605',
+};
+
+const getSubwayLineColor = (lineName) => {
+  if (!lineName) return '#6366f1';
+  for (const [key, color] of Object.entries(SUBWAY_LINE_COLORS)) {
+    if (lineName.includes(key)) return color;
+  }
+  // "수도권 1호선" 같은 형태 폴백: 숫자 추출
+  const m = lineName.match(/(\d+)호선/);
+  if (m) return SUBWAY_LINE_COLORS[`${m[1]}호선`] || '#6366f1';
+  return '#6366f1';
+};
+
+// ── 버스 종류별 공식 컬러 (한국 버스 번호 체계 기준) ──
+// M: 광역급행(진빨강), N: 심야(남색), 마을: 연초록
+// 번호 기준: 1-99=순환(노랑), 100-799=간선(파랑), 800-999=광역(빨강),
+//           1000-8999=지선(초록), 9000+=광역(빨강)
+const getBusLineColor = (busNo) => {
+  if (!busNo) return '#3162A5';
+  const s = String(busNo).trim();
+
+  if (/^M/i.test(s)) return '#C8102E';           // 광역급행버스 (M버스)
+  if (/^N/i.test(s)) return '#1A3B6A';           // 심야버스
+  if (s.includes('마을') || /^[가-힣]/.test(s)) return '#5BB025'; // 마을버스
+
+  const num = parseInt(s.replace(/\D/g, ''), 10);
+  if (isNaN(num))           return '#3162A5';    // 파싱 불가 → 간선 기본
+  if (num <= 99)            return '#F5BF00';    // 순환버스 (노랑)
+  if (num <= 799)           return '#3162A5';    // 간선버스 (파랑)
+  if (num <= 999)           return '#D31015';    // 광역버스 (빨강)
+  if (num < 9000)           return '#53A439';    // 지선버스 (초록)
+  return '#D31015';                              // 9000번대 광역버스 (빨강)
+};
+
+// hex → rgba 변환 (배경 투명도용)
+const hexToRgba = (hex, alpha) => {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+};
+
 const TransitDetailPanel = ({ transitDetail }) => {
   if (!transitDetail || transitDetail.length === 0) return null;
 
@@ -65,8 +133,13 @@ const TransitDetailPanel = ({ transitDetail }) => {
 
         const isBus = d.type === 'bus';
         const Icon = isBus ? FaBus : FaSubway;
-        const lineColor = isBus ? '#3b82f6' : '#6366f1';
-        const bgColor = isBus ? '#eff6ff' : '#eef2ff';
+
+        // 버스: 종류별 공식 컬러 / 지하철: 호선별 공식 컬러
+        const getBadgeColor = (line) => isBus ? getBusLineColor(line) : getSubwayLineColor(line);
+
+        // 패널 배경: 첫 번째 노선 컬러 8% opacity
+        const firstColor = isBus ? getBusLineColor(d.lines[0] || '') : getSubwayLineColor(d.lines[0] || '');
+        const bgColor = hexToRgba(firstColor, 0.08);
 
         return (
           <div key={i} className="px-3 py-2 border-t border-blue-100 first:border-t-0" style={{ background: bgColor }}>
@@ -74,7 +147,7 @@ const TransitDetailPanel = ({ transitDetail }) => {
             <div className="flex items-center gap-1.5 flex-wrap mb-1">
               {d.lines.map((line, li) => (
                 <span key={li} className="inline-flex items-center gap-1 text-white text-xs font-bold px-2 py-0.5 rounded"
-                  style={{ background: lineColor }}>
+                  style={{ background: getBadgeColor(line) }}>
                   <Icon size={9} />
                   {line}
                 </span>
@@ -116,7 +189,7 @@ const SegmentCard = ({
   onUpdateReservation,
   isSelected,       // 지도에서 이 구간 폴리라인을 클릭한 경우 true
 }) => {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const { scrollRef, showHint } = useScrollHint();
   const cardRef = useRef(null);
 
@@ -317,7 +390,7 @@ const SegmentCard = ({
   );
 };
 
-const PlaceList = ({ places, routeSegments = [], selectedSegmentIndex, onReorder, onToggleCheck, onDelete, onUpdateNote, onUpdateTransport, onUpdateReservation }) => {
+const PlaceList = ({ places, routeSegments = [], selectedSegmentIndex, onReorder, onToggleCheck, onDelete, onUpdateNote, onUpdateTransport, onUpdateReservation, onPlaceClick }) => {
   const handleDragEnd = (result) => {
     if (!result.destination) return;
 
@@ -391,9 +464,14 @@ const PlaceList = ({ places, routeSegments = [], selectedSegmentIndex, onReorder
                             {place.order}
                           </div>
 
-                          <div className="flex-1 min-w-0">
-                            <p className={`font-semibold text-sm text-gray-800 truncate ${place.checked ? 'line-through text-gray-400' : ''}`}>
+                          <div
+                            className="flex-1 min-w-0 group cursor-pointer"
+                            onClick={() => onPlaceClick && onPlaceClick(place)}
+                            title="지도에서 보기"
+                          >
+                            <p className={`font-semibold text-sm truncate flex items-center gap-1 ${place.checked ? 'line-through text-gray-400' : 'text-gray-800 group-hover:text-blue-600'}`}>
                               {place.name}
+                              <FaMapMarkerAlt size={9} className="flex-shrink-0 text-gray-300 group-hover:text-blue-400 transition-colors" />
                             </p>
                             <p className="text-xs text-gray-400 truncate">{place.address}</p>
                           </div>

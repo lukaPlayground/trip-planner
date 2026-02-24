@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 
 const ODSAY_API_KEY = process.env.ODSAY_API_KEY;
+const ITS_API_KEY   = process.env.ITS_API_KEY;
 const ODSAY_BASE = 'https://api.odsay.com/v1/api';
 
 // ODsay는 등록된 도메인(Origin) 기반 인증을 사용한다.
@@ -378,6 +379,69 @@ router.get('/train', (req, res) => {
     distKm:      Math.round(distKm * 10) / 10,
     estimatedMinutes,
   });
+});
+
+// ── ITS 전광판(VMS) 도로 이벤트 조회 ──
+// GET /api/transit/road-events?minX=&maxX=&minY=&maxY=
+//
+// 경로 bounding box 내 VMS 전광판 데이터를 반환한다.
+// 동일 vmsId의 여러 메시지(messageNo)를 하나로 합쳐서 반환.
+// roadGrad: 101=고속도로, 103=국도
+//
+// 에러 발생 시 빈 배열 반환 (UI 차단 방지)
+router.get('/road-events', async (req, res) => {
+  try {
+    const { minX, maxX, minY, maxY } = req.query;
+
+    if (!minX || !maxX || !minY || !maxY) {
+      return res.json({ events: [] });
+    }
+
+    const url = `https://openapi.its.go.kr:9443/vmsInfo?apiKey=${ITS_API_KEY}&type=all&minX=${minX}&maxX=${maxX}&minY=${minY}&maxY=${maxY}&getType=json`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.header?.resultCode !== 0 || !Array.isArray(data.body?.items)) {
+      return res.json({ events: [] });
+    }
+
+    const minXNum = parseFloat(minX);
+    const maxXNum = parseFloat(maxX);
+    const minYNum = parseFloat(minY);
+    const maxYNum = parseFloat(maxY);
+
+    // vmsId별 메시지 그룹화 + bbox 필터 (ITS API가 bbox를 완전히 지원하지 않아 직접 필터링)
+    const vmsMap = {};
+    for (const item of data.body.items) {
+      const lat = parseFloat(item.coordY);
+      const lng = parseFloat(item.coordX);
+      if (isNaN(lat) || isNaN(lng)) continue;
+      if (lat < minYNum || lat > maxYNum || lng < minXNum || lng > maxXNum) continue; // bbox 벗어나면 제외
+
+      if (!vmsMap[item.vmsId]) {
+        vmsMap[item.vmsId] = {
+          lat, lng,
+          roadGrad:  item.roadGrad   || '',
+          roadName:  item.roadName   || '',
+          routeNo:   item.routeNo    || '',
+          updatedAt: item.createdDate || '',
+          parts:     new Set(),
+        };
+      }
+      item.message.split('|').map(s => s.trim()).filter(Boolean)
+        .forEach(p => vmsMap[item.vmsId].parts.add(p));
+    }
+
+    const events = Object.values(vmsMap)
+      .filter(v => v.parts.size > 0)
+      .map(({ parts, ...v }) => ({ ...v, message: [...parts].join(' · ') }));
+
+    res.json({ events });
+
+  } catch (error) {
+    console.error('Road events error:', error.message);
+    res.json({ events: [] });
+  }
 });
 
 module.exports = router;

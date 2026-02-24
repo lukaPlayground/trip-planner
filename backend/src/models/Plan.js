@@ -28,7 +28,7 @@ const placeSchema = new mongoose.Schema({
   },
   transport: {
     type: String,
-    enum: ['walk', 'bicycle', 'motorcycle', 'bus', 'subway', 'train', 'car', 'taxi', 'ship', 'plane'],
+    enum: ['walk', 'bicycle', 'motorcycle', 'bus', 'subway', 'transit', 'train', 'car', 'taxi', 'ship', 'plane'],
     default: 'bus'
   },
   reservation: {

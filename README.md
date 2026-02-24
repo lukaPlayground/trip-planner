@@ -290,6 +290,31 @@ API 키는 [ITS 국가교통정보센터](https://www.its.go.kr)에서 회원가
   - 지도 폴리라인 클릭 시 Leaflet Popup 대신 우측 SegmentCard 하이라이트 + 자동 스크롤
   - 환승 상세 자동 펼침, 바이크 경유 도로명 표시
   - 모바일: 지도 탭 → 리스트 탭 자동 전환
-- [ ] 링크 공유 활성화 안정성 개선 (clipboard API 로컬호스트 HTTPS 이슈)
-- [ ] ITS API 연동 (경로 위 실시간 속도 → 소요시간 보정, API 키 신청 필요)
+- [x] **링크 공유 활성화 안정성 개선** (2026.02)
+  - **실제 원인**: clipboard API 이슈가 아닌 Mongoose 스키마 validation 오류
+  - `plan.save()` 호출 시 `places[n].transport = 'transit'` (레거시 데이터) → enum 불일치 → 500 오류
+  - **수정 1**: `Plan.js` enum에 `'transit'` 추가 (레거시 데이터 하위 호환)
+  - **수정 2**: `PATCH /plans/:id/share` 라우트에서 `plan.save()` → `Plan.updateOne($set)` 으로 교체
+    - 전체 문서 validation 대신 `isPublic` 필드만 업데이트 → 레거시 필드값에 영향 없음
+  - **추가**: `Dashboard.jsx`에 `copyToClipboard()` 유틸 추가 (HTTPS: Clipboard API, HTTP: textarea + execCommand 폴백)
+- [x] **장소 클릭 → 지도 flyTo** (2026.02)
+  - 우측 장소 목록에서 장소명 클릭 시 지도가 해당 위치로 부드럽게 이동 (Leaflet `flyTo`)
+  - 모바일: 리스트 탭에서 클릭 시 자동으로 지도 탭으로 전환
+  - `Map.jsx` 내 `FlyTo` 컴포넌트 (useMap + useEffect) + `focusedPlace` prop
+  - `ts: Date.now()` 로 동일 장소 재클릭 시에도 effect 재실행 보장
+- [x] **ITS 전광판(VMS) 도로 이벤트 오버레이** (2026.02)
+  - 국가교통정보센터 API (ITS, `https://openapi.its.go.kr:9443`) 연동
+  - 자동차/바이크 구간 포함 시 경로 bbox 내 VMS 전광판 데이터를 지도에 오버레이
+  - `GET /api/transit/road-events?minX&maxX&minY&maxY` 백엔드 프록시 라우트 추가
+  - **삽질 기록**: `trafficInfo?type=all`에는 좌표 없음(linkId만) → 원래 계획(속도 기반 소요시간 보정) 불가
+  - `vmsInfo?type=all`이 좌표 포함 → B안(경고 오버레이)으로 선회
+  - ITS API bbox 파라미터가 서버사이드 필터링 미지원 → 백엔드에서 좌표 직접 필터링
+  - roadGrad 101=고속도로(주황), 103=국도(노랑) 색상 구분 마커, 클릭 시 Popup 표시
+  - **인증**: `apiKey` 쿼리 파라미터 방식, 서버-to-서버 호출이므로 도메인/포트 무관
+- [x] **환승 상세 패널 기본 열림** (2026.02)
+  - SegmentCard 환승정보 토글 초기값 `false` → `true` (항상 펼쳐진 상태로 표시)
+- [x] **대중교통 노선 컬러 시스템** (2026.02)
+  - 지하철: 1~9호선 + 수인분당·신분당·경의중앙·공항철도·경춘·GTX-A/B/C·우이신설·서해·경강·김포골드 호선별 공식 컬러
+  - 버스: M(광역급행 진빨강)·N(심야 남색)·마을(연초록)·순환(노랑)·간선(파랑)·광역(빨강)·지선(초록) 번호 체계 기반 자동 분류
+  - 노선 배지 컬러 + 해당 구간 패널 배경(첫 번째 노선 컬러 8% opacity) 자동 적용
 - [ ] 200km+ 자전거/도보 경로 폴백 개선
