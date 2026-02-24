@@ -18,8 +18,10 @@ app.use('/api/plans', require('./routes/plans'));
 app.use('/api/places', require('./routes/places'));
 app.use('/api/transit', require('./routes/transit'));
 
-// Admin dashboard (local dev only) — http://localhost:5001
-app.use('/', require('./routes/admin'));
+// Admin dashboard — 로컬 개발 환경에서만 활성화
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/', require('./routes/admin'));
+}
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
