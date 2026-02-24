@@ -329,5 +329,17 @@ API 키는 [ITS 국가교통정보센터](https://www.its.go.kr)에서 회원가
     - `fetchSingleRoute`: 순수 Valhalla 단일 호출 (캐시 없음, 거리 제한 없음)
     - `fetchRoute`: 캐시 + 거리 판단 + 분할/폴백 조율
 
+- [x] **경로 새로고침 버튼** (2026.02)
+  - 지도 우하단에 `↺ 경로 새로고침` 버튼 추가 (장소 2개 이상일 때만 표시)
+  - 클릭 시 `routeCache` + `transitCache` + `trainCache` 전부 초기화 → `buildSegments` 강제 재실행
+  - `refreshKey` state로 `useEffect` 재트리거, `refreshingRef`로 완료 감지 → 스피닝(animate-spin) 자동 해제
+  - 활용: Valhalla 일시 장애로 `longDistanceFallback` 발생 시, 오래된 캐시 무효화 시
+- [x] **MongoDB 어드민 대시보드** (2026.02)
+  - `http://localhost:5001` 접속 시 phpMyAdmin 스타일 서버-렌더링 HTML 대시보드 표시
+  - 별도 npm 패키지 없음 — Express + Mongoose 쿼리 + 인라인 CSS 단일 파일
+  - 통계 카드: 전체 회원 수, 플랜 수(공개/비공개), 전체 장소 수, 플랜당 평균 장소
+  - Users 테이블: _id, 이름, 이메일, 플랜 수, 가입일
+  - Plans 테이블: _id, 플랜명, 작성자, 공개여부, 장소 목록(번호·이름·이동수단·예약 배지), 수정일
+
 ### 진행 예정
 - [ ] (다음 기능)

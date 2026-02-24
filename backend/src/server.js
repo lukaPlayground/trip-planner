@@ -18,9 +18,8 @@ app.use('/api/plans', require('./routes/plans'));
 app.use('/api/places', require('./routes/places'));
 app.use('/api/transit', require('./routes/transit'));
 
-app.get('/', (req, res) => {
-  res.json({ message: 'Trip Planner API Running' });
-});
+// Admin dashboard (local dev only) — http://localhost:5001
+app.use('/', require('./routes/admin'));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
