@@ -31,7 +31,7 @@ app.use(express.json());
 
 // 헬스체크 — MongoDB 연결과 무관하게 항상 응답
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', env: process.env.NODE_ENV, mongo: !!process.env.MONGODB_URI });
+  res.json({ status: 'ok', env: process.env.NODE_ENV, mongo: !!process.env.MONGODB_URI, port: process.env.PORT });
 });
 
 app.use('/api/auth', require('./routes/auth'));
@@ -44,7 +44,7 @@ if (process.env.NODE_ENV !== 'production') {
   app.use('/', require('./routes/admin'));
 }
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
 });
