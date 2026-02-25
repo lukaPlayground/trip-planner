@@ -248,7 +248,7 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen flex flex-col overflow-x-hidden">
 
       {/* ── 헤더 ── */}
       <header className="bg-blue-600 text-white px-3 py-2 flex items-center justify-between shadow-md z-[2000] relative flex-shrink-0">
@@ -266,7 +266,7 @@ const Dashboard = () => {
           <div className="relative">
             <button
               onClick={(e) => { e.stopPropagation(); setShowPlanList(!showPlanList); setShowShareMenu(false); }}
-              className="flex items-center gap-1 bg-blue-700 hover:bg-blue-800 px-2 py-1.5 rounded-lg text-xs transition-colors max-w-[120px] sm:max-w-[180px]"
+              className="flex items-center gap-1 bg-blue-700 hover:bg-blue-800 px-2 py-1.5 rounded-lg text-xs transition-colors max-w-[80px] sm:max-w-[180px]"
             >
               <span className="truncate">
                 {currentPlan ? currentPlan.planName : '계획 선택'}
@@ -303,7 +303,7 @@ const Dashboard = () => {
         </div>
 
         {/* 오른쪽: 액션 버튼들 */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
           {/* 새 계획 */}
           <button
             onClick={createNewPlan}
