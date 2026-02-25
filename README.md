@@ -76,46 +76,6 @@ npm run dev
 
 ---
 
-## 배포 (Production)
-
-**Vercel** (프론트엔드) + **Railway** (백엔드) + **MongoDB Atlas** (데이터베이스) 구성으로 배포한다.
-
-### Railway (백엔드)
-
-1. GitHub 저장소 연결 → Root Directory: `backend`
-2. Variables 탭에 환경변수 설정:
-
-| Key | Value |
-|-----|-------|
-| `NODE_ENV` | `production` |
-| `MONGODB_URI` | MongoDB Atlas 연결 문자열 |
-| `JWT_SECRET` | 랜덤 시크릿 문자열 |
-| `GOOGLE_MAPS_API_KEY` | Google Places API 키 |
-| `ODSAY_API_KEY` | ODsay LAB API 키 |
-| `CORS_ORIGIN` | Vercel 배포 URL (예: `https://your-app.vercel.app`) |
-
-3. Networking → Port: `8080`
-4. 빌드/시작 명령은 `railway.json`에서 자동으로 읽음
-
-### Vercel (프론트엔드)
-
-1. GitHub 저장소 연결 → Root Directory: `frontend`
-2. Environment Variables 설정:
-
-| Key | Value |
-|-----|-------|
-| `VITE_API_URL` | Railway 배포 URL + `/api` (예: `https://your-app.up.railway.app/api`) |
-
-3. SPA 라우팅 처리는 `vercel.json`에서 자동으로 처리됨
-
-### MongoDB Atlas
-
-1. Cluster 생성 → Database Access: 유저/패스워드 생성
-2. Network Access → `0.0.0.0/0` 추가 (Railway 동적 IP 허용)
-3. 연결 문자열: `mongodb+srv://<user>:<password>@<cluster>.mongodb.net/<dbname>?retryWrites=true&w=majority`
-
----
-
 ## 이동수단 & 경로
 
 | 이동수단 | 내부값 | 색상 | 경로 방식 |

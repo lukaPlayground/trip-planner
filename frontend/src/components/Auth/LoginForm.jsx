@@ -3,11 +3,12 @@ import { AuthContext } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 const LoginForm = ({ onSwitchToRegister }) => {
-  const { login } = useContext(AuthContext);
+  const { login, loginAsGuest } = useContext(AuthContext);
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [guestLoading, setGuestLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -21,6 +22,19 @@ const LoginForm = ({ onSwitchToRegister }) => {
       setError(err.response?.data?.message || '로그인에 실패했습니다');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGuestLogin = async () => {
+    setError('');
+    setGuestLoading(true);
+    try {
+      await loginAsGuest();
+      navigate('/dashboard');
+    } catch (err) {
+      setError('게스트 로그인에 실패했습니다');
+    } finally {
+      setGuestLoading(false);
     }
   };
 
@@ -65,6 +79,21 @@ const LoginForm = ({ onSwitchToRegister }) => {
         className="w-full py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 font-medium transition-colors"
       >
         {loading ? '로그인 중...' : '로그인'}
+      </button>
+
+      <div className="relative flex items-center my-1">
+        <div className="flex-grow border-t border-gray-200" />
+        <span className="mx-3 text-xs text-gray-400">또는</span>
+        <div className="flex-grow border-t border-gray-200" />
+      </div>
+
+      <button
+        type="button"
+        onClick={handleGuestLogin}
+        disabled={guestLoading}
+        className="w-full py-2.5 bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-50 font-medium transition-colors border border-gray-200 text-sm"
+      >
+        {guestLoading ? '로그인 중...' : '🙋 게스트로 체험하기'}
       </button>
 
       <p className="text-center text-sm text-gray-500">

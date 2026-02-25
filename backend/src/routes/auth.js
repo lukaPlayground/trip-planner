@@ -61,4 +61,32 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// 게스트 로그인 (데모용)
+router.post('/guest', async (req, res) => {
+  try {
+    const GUEST_EMAIL = 'guest@demo.com';
+    const GUEST_PASSWORD = 'guest_demo_2026!';
+    const GUEST_NAME = '게스트';
+
+    let guest = await User.findOne({ email: GUEST_EMAIL });
+    if (!guest) {
+      guest = new User({ email: GUEST_EMAIL, password: GUEST_PASSWORD, name: GUEST_NAME });
+      await guest.save();
+    }
+
+    const token = jwt.sign(
+      { userId: guest._id },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({
+      token,
+      user: { id: guest._id, email: guest.email, name: guest.name }
+    });
+  } catch (error) {
+    res.status(500).json({ message: '서버 오류', error: error.message });
+  }
+});
+
 module.exports = router;
