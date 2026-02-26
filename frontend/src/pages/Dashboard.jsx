@@ -8,7 +8,7 @@ import api from '../api/axios';
 import { useExport } from '../components/ExportButton';
 import {
   FaPlus, FaSave, FaSignOutAlt, FaTrash, FaChevronDown,
-  FaShareAlt, FaLink, FaCopy, FaFilePdf, FaCheck,
+  FaShareAlt, FaLink, FaCopy, FaFilePdf, FaCheck, FaBars,
 } from 'react-icons/fa';
 
 const Dashboard = () => {
@@ -27,6 +27,7 @@ const Dashboard = () => {
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [shareToast, setShareToast] = useState('');
   const [mobileTab, setMobileTab] = useState('map'); // 'map' | 'list'
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
 
   // 지도 컨테이너 ref (캡처용)
   const mapContainerRef = useRef(null);
@@ -44,6 +45,7 @@ const Dashboard = () => {
     const handleClick = () => {
       setShowPlanList(false);
       setShowShareMenu(false);
+      setShowMobileMenu(false);
     };
     document.addEventListener('click', handleClick);
     return () => document.removeEventListener('click', handleClick);
@@ -266,7 +268,7 @@ const Dashboard = () => {
           <div className="relative">
             <button
               onClick={(e) => { e.stopPropagation(); setShowPlanList(!showPlanList); setShowShareMenu(false); }}
-              className="flex items-center gap-1 bg-blue-700 hover:bg-blue-800 px-2 py-1.5 rounded-lg text-xs transition-colors max-w-[80px] sm:max-w-[180px]"
+              className="flex items-center gap-1 bg-blue-700 hover:bg-blue-800 px-2 py-1.5 rounded-lg text-xs transition-colors max-w-[150px] sm:max-w-[180px]"
             >
               <span className="truncate">
                 {currentPlan ? currentPlan.planName : '계획 선택'}
@@ -303,119 +305,167 @@ const Dashboard = () => {
         </div>
 
         {/* 오른쪽: 액션 버튼들 */}
-        <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
-          {/* 새 계획 */}
-          <button
-            onClick={createNewPlan}
-            className="flex items-center gap-1 px-2 py-1.5 bg-white text-blue-600 rounded-lg hover:bg-gray-50 text-xs font-medium transition-colors"
-            title="새 계획"
-          >
-            <FaPlus size={11} />
-            <span className="hidden sm:inline">새 계획</span>
-          </button>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
 
-          {/* 저장 */}
-          <button
-            onClick={savePlan}
-            disabled={!currentPlan || saving}
-            className="flex items-center gap-1 px-2 py-1.5 bg-green-500 rounded-lg hover:bg-green-600 disabled:opacity-50 text-xs font-medium transition-colors"
-            title="저장"
-          >
-            <FaSave size={11} />
-            <span className="hidden sm:inline">{saving ? '저장 중' : '저장'}</span>
-          </button>
+          {/* ── 데스크톱 전용 버튼들 (sm 이상) ── */}
+          <div className="hidden sm:flex items-center gap-1.5">
+            <button
+              onClick={createNewPlan}
+              className="flex items-center gap-1 px-2 py-1.5 bg-white text-blue-600 rounded-lg hover:bg-gray-50 text-xs font-medium transition-colors"
+              title="새 계획"
+            >
+              <FaPlus size={11} />
+              <span>새 계획</span>
+            </button>
 
-          {/* 공유/내보내기 통합 드롭다운 */}
-          {currentPlan && (
-            <div className="relative">
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowShareMenu(!showShareMenu); setShowPlanList(false); }}
-                disabled={!!isExporting}
-                className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
-                  currentPlan.isPublic
-                    ? 'bg-green-500 hover:bg-green-600'
-                    : 'bg-blue-700 hover:bg-blue-800'
-                }`}
-                title="공유 / 내보내기"
-              >
-                {isExporting ? (
-                  <span className="text-xs">{isExporting === 'pdf' ? 'PDF...' : '캡처...'}</span>
-                ) : (
-                  <>
-                    {currentPlan.isPublic ? <FaLink size={11} /> : <FaShareAlt size={11} />}
-                    <span className="hidden sm:inline">
-                      {currentPlan.isPublic ? '공유 중' : '공유'}
-                    </span>
-                    <FaChevronDown size={8} className="opacity-70" />
-                  </>
-                )}
-              </button>
+            <button
+              onClick={savePlan}
+              disabled={!currentPlan || saving}
+              className="flex items-center gap-1 px-2 py-1.5 bg-green-500 rounded-lg hover:bg-green-600 disabled:opacity-50 text-xs font-medium transition-colors"
+              title="저장"
+            >
+              <FaSave size={11} />
+              <span>{saving ? '저장 중' : '저장'}</span>
+            </button>
 
-              {showShareMenu && (
-                <div
-                  className="absolute top-full right-0 mt-1 bg-white text-gray-800 rounded-xl shadow-xl border border-gray-100 z-[2100] overflow-hidden min-w-[180px]"
-                  onClick={(e) => e.stopPropagation()}
+            {currentPlan && (
+              <div className="relative">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowShareMenu(!showShareMenu); setShowPlanList(false); }}
+                  disabled={!!isExporting}
+                  className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                    currentPlan.isPublic
+                      ? 'bg-green-500 hover:bg-green-600'
+                      : 'bg-blue-700 hover:bg-blue-800'
+                  }`}
+                  title="공유 / 내보내기"
                 >
-                  {/* 링크 공유 섹션 */}
-                  <div className="px-3 py-2 border-b border-gray-100 bg-gray-50">
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">공유</p>
-                  </div>
+                  {isExporting ? (
+                    <span className="text-xs">{isExporting === 'pdf' ? 'PDF...' : '캡처...'}</span>
+                  ) : (
+                    <>
+                      {currentPlan.isPublic ? <FaLink size={11} /> : <FaShareAlt size={11} />}
+                      <span>{currentPlan.isPublic ? '공유 중' : '공유'}</span>
+                      <FaChevronDown size={8} className="opacity-70" />
+                    </>
+                  )}
+                </button>
 
-                  {/* 공유 토글 */}
-                  <button
-                    onClick={handleToggleShare}
-                    className="flex items-center gap-2.5 w-full px-4 py-2.5 hover:bg-gray-50 text-sm transition-colors"
+                {showShareMenu && (
+                  <div
+                    className="absolute top-full right-0 mt-1 bg-white text-gray-800 rounded-xl shadow-xl border border-gray-100 z-[2100] overflow-hidden min-w-[180px]"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    {currentPlan.isPublic ? (
-                      <>
-                        <FaCheck size={12} className="text-green-500" />
-                        <span>공유 비활성화</span>
-                      </>
-                    ) : (
-                      <>
-                        <FaShareAlt size={12} className="text-blue-500" />
-                        <span>링크 공유 활성화</span>
-                      </>
+                    <div className="px-3 py-2 border-b border-gray-100 bg-gray-50">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">공유</p>
+                    </div>
+                    <button onClick={handleToggleShare} className="flex items-center gap-2.5 w-full px-4 py-2.5 hover:bg-gray-50 text-sm transition-colors">
+                      {currentPlan.isPublic ? (
+                        <><FaCheck size={12} className="text-green-500" /><span>공유 비활성화</span></>
+                      ) : (
+                        <><FaShareAlt size={12} className="text-blue-500" /><span>링크 공유 활성화</span></>
+                      )}
+                    </button>
+                    {currentPlan.isPublic && (
+                      <button onClick={handleCopyLink} className="flex items-center gap-2.5 w-full px-4 py-2.5 hover:bg-gray-50 text-sm transition-colors">
+                        <FaCopy size={12} className="text-gray-500" /><span>링크 복사</span>
+                      </button>
                     )}
-                  </button>
+                    <div className="px-3 py-2 border-t border-b border-gray-100 bg-gray-50">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">내보내기</p>
+                    </div>
+                    <button onClick={handleExportPDF} disabled={places.length === 0} className="flex items-center gap-2.5 w-full px-4 py-2.5 hover:bg-gray-50 text-sm transition-colors disabled:opacity-40">
+                      <FaFilePdf size={13} className="text-red-500" /><span>PDF로 저장</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
-                  {/* 링크 복사 (공개 상태일 때만) */}
-                  {currentPlan.isPublic && (
+            <button
+              onClick={handleLogout}
+              className="flex items-center px-2 py-1.5 bg-blue-700 rounded-lg hover:bg-blue-800 text-xs transition-colors"
+              title="로그아웃"
+            >
+              <FaSignOutAlt size={11} />
+            </button>
+          </div>
+
+          {/* ── 모바일 햄버거 (sm 미만) ── */}
+          <div className="relative sm:hidden">
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowMobileMenu(!showMobileMenu); setShowPlanList(false); }}
+              className="flex items-center px-2 py-1.5 bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors"
+            >
+              <FaBars size={14} />
+            </button>
+
+            {showMobileMenu && (
+              <div
+                className="absolute top-full right-0 mt-1 bg-white text-gray-800 rounded-xl shadow-xl border border-gray-100 z-[2100] overflow-hidden min-w-[160px]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  onClick={() => { createNewPlan(); setShowMobileMenu(false); }}
+                  className="flex items-center gap-2.5 w-full px-4 py-2.5 hover:bg-gray-50 text-sm transition-colors"
+                >
+                  <FaPlus size={12} className="text-blue-500" /><span>새 계획</span>
+                </button>
+
+                <button
+                  onClick={() => { savePlan(); setShowMobileMenu(false); }}
+                  disabled={!currentPlan || saving}
+                  className="flex items-center gap-2.5 w-full px-4 py-2.5 hover:bg-gray-50 text-sm transition-colors disabled:opacity-40"
+                >
+                  <FaSave size={12} className="text-green-500" />
+                  <span>{saving ? '저장 중...' : '저장'}</span>
+                </button>
+
+                {currentPlan && (
+                  <>
+                    <div className="border-t border-gray-100" />
+
                     <button
-                      onClick={handleCopyLink}
+                      onClick={() => { handleToggleShare(); setShowMobileMenu(false); }}
                       className="flex items-center gap-2.5 w-full px-4 py-2.5 hover:bg-gray-50 text-sm transition-colors"
                     >
-                      <FaCopy size={12} className="text-gray-500" />
-                      <span>링크 복사</span>
+                      {currentPlan.isPublic ? (
+                        <><FaCheck size={12} className="text-green-500" /><span>공유 비활성화</span></>
+                      ) : (
+                        <><FaShareAlt size={12} className="text-blue-500" /><span>링크 공유 활성화</span></>
+                      )}
                     </button>
-                  )}
 
-                  {/* 내보내기 섹션 */}
-                  <div className="px-3 py-2 border-t border-b border-gray-100 bg-gray-50">
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">내보내기</p>
-                  </div>
+                    {currentPlan.isPublic && (
+                      <button
+                        onClick={() => { handleCopyLink(); setShowMobileMenu(false); }}
+                        className="flex items-center gap-2.5 w-full px-4 py-2.5 hover:bg-gray-50 text-sm transition-colors"
+                      >
+                        <FaCopy size={12} className="text-gray-500" /><span>링크 복사</span>
+                      </button>
+                    )}
 
-                  <button
-                    onClick={handleExportPDF}
-                    disabled={places.length === 0}
-                    className="flex items-center gap-2.5 w-full px-4 py-2.5 hover:bg-gray-50 text-sm transition-colors disabled:opacity-40"
-                  >
-                    <FaFilePdf size={13} className="text-red-500" />
-                    <span>PDF로 저장</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+                    <button
+                      onClick={() => { handleExportPDF(); setShowMobileMenu(false); }}
+                      disabled={places.length === 0}
+                      className="flex items-center gap-2.5 w-full px-4 py-2.5 hover:bg-gray-50 text-sm transition-colors disabled:opacity-40"
+                    >
+                      <FaFilePdf size={13} className="text-red-500" /><span>PDF로 저장</span>
+                    </button>
+                  </>
+                )}
 
-          {/* 로그아웃 */}
-          <button
-            onClick={handleLogout}
-            className="flex items-center px-2 py-1.5 bg-blue-700 rounded-lg hover:bg-blue-800 text-xs transition-colors"
-            title="로그아웃"
-          >
-            <FaSignOutAlt size={11} />
-          </button>
+                <div className="border-t border-gray-100" />
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2.5 w-full px-4 py-2.5 hover:bg-red-50 text-sm transition-colors text-red-500"
+                >
+                  <FaSignOutAlt size={12} /><span>로그아웃</span>
+                </button>
+              </div>
+            )}
+          </div>
+
         </div>
       </header>
 
