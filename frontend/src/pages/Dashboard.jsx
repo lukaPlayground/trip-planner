@@ -534,13 +534,13 @@ const Dashboard = () => {
         </div>
 
         {/* 사이드바 */}
-        <div className={`flex flex-col bg-gray-50 border-l border-gray-200 min-h-0 ${
+        <div className={`flex flex-col bg-gray-50 border-l border-gray-200 min-h-0 overflow-x-hidden ${
           mobileTab === 'list' ? 'flex-1' : 'hidden'
         } md:flex md:w-2/5`}>
           {currentPlan ? (
             <>
               {/* 계획 정보 */}
-              <div className="px-4 py-3 border-b border-gray-200 bg-white flex-shrink-0">
+              <div className="px-3 py-3 border-b border-gray-200 bg-white flex-shrink-0">
                 <h2 className="text-base font-bold text-gray-800 truncate">{currentPlan.planName}</h2>
                 <div className="flex gap-2 mt-1 text-xs text-gray-500 flex-wrap">
                   <span>장소 {places.length}개</span>
@@ -565,7 +565,7 @@ const Dashboard = () => {
               </div>
 
               {/* 검색창 */}
-              <div className="px-4 py-3 border-b border-gray-200 bg-white flex-shrink-0">
+              <div className="px-3 py-3 border-b border-gray-200 bg-white flex-shrink-0">
                 <SearchBar onAddPlace={handleAddPlace} />
               </div>
 
