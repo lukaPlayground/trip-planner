@@ -250,7 +250,7 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="h-screen flex flex-col overflow-x-hidden">
+    <div className="h-screen flex flex-col">
 
       {/* ── 헤더 ── */}
       <header className="bg-blue-600 text-white px-3 py-2 flex items-center justify-between shadow-md z-[2000] relative flex-shrink-0">

@@ -224,15 +224,15 @@ const SegmentCard = ({
     (currentTransport === 'walk' || currentTransport === 'bicycle') && seg?.longDistanceFallback === true;
 
   return (
-    <div className="relative flex items-stretch px-1" ref={cardRef}>
+    <div className="relative flex items-stretch" ref={cardRef}>
       {/* 세로 연결선 */}
-      <div className="flex flex-col items-center mr-2" style={{ width: '28px' }}>
+      <div className="flex flex-col items-center mr-1.5" style={{ width: '24px' }}>
         <div className="w-0.5 flex-1" style={{ backgroundColor: transportColor, opacity: isSelected ? 0.7 : 0.25 }} />
       </div>
 
       {/* 카드 본문 */}
       <div
-        className="flex-1 my-1 py-2.5 px-3 rounded-xl border shadow-sm transition-all duration-200"
+        className="flex-1 my-1 py-2.5 px-2 sm:px-3 rounded-xl border shadow-sm transition-all duration-200"
         style={{
           borderColor: isSelected ? transportColor : transportColor + '40',
           borderWidth: isSelected ? '1.5px' : '1px',
@@ -243,7 +243,7 @@ const SegmentCard = ({
 
         {/* 이동수단 선택 버튼 행 */}
         <div className="relative mb-2">
-          <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-thin" ref={scrollRef}>
+          <div className="flex gap-0.5 overflow-x-auto pb-0.5 scrollbar-thin" ref={scrollRef}>
             {TRANSPORT_OPTIONS.map(({ value, icon: Icon, label, color, reservable }) => {
               const isActive = currentTransport === value;
               return (
@@ -257,7 +257,7 @@ const SegmentCard = ({
                     }
                   }}
                   title={label}
-                  className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-all border"
+                  className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-all border"
                   style={{
                     backgroundColor: isActive ? color + '18' : 'transparent',
                     borderColor: isActive ? color : '#e5e7eb',
@@ -270,7 +270,7 @@ const SegmentCard = ({
             })}
           </div>
           {showHint && (
-            <div className="absolute right-0 top-0 h-8 flex items-center pl-4 pointer-events-none"
+            <div className="absolute right-0 top-0 h-7 flex items-center pl-4 pointer-events-none"
               style={{ background: 'linear-gradient(to right, transparent, white 40%)' }}>
               <FaChevronRight size={10} className="text-gray-400 animate-pulse" />
             </div>

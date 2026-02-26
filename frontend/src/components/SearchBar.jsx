@@ -50,23 +50,23 @@ const SearchBar = ({ onAddPlace }) => {
 
   return (
     <div className="relative">
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2">
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          placeholder="장소 검색 (예: 서울역, 해운대, 제주 맛집)"
-          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="장소 검색 (예: 서울역, 해운대)"
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
           disabled={loading}
         />
         <button
           onClick={handleSearch}
           disabled={loading}
-          className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 flex items-center gap-2 whitespace-nowrap"
+          className="w-full py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 flex items-center justify-center gap-2 text-sm font-medium"
         >
-          {loading ? <FaSpinner className="animate-spin" /> : <FaSearch />}
-          검색
+          {loading ? <FaSpinner className="animate-spin" size={13} /> : <FaSearch size={13} />}
+          {loading ? '검색 중...' : '검색'}
         </button>
       </div>
 
