@@ -382,6 +382,7 @@ const Map = ({ places, onRouteUpdate, mapContainerRef, onSegmentClick, selectedS
   const [roadEvents, setRoadEvents]       = useState([]);   // ITS VMS 전광판 이벤트
   const [refreshKey, setRefreshKey]       = useState(0);    // 캐시 초기화 + 재계산 트리거
   const [isRefreshing, setIsRefreshing]   = useState(false); // 새로고침 버튼 스피닝
+  const [legendOpen, setLegendOpen]       = useState(false); // 범례 토글 (기본: 접힘)
   const abortRef    = useRef(null);
   const refreshingRef = useRef(false);   // buildSegments 내부에서 완료 감지용
 
@@ -428,15 +429,17 @@ const Map = ({ places, onRouteUpdate, mapContainerRef, onSegmentClick, selectedS
             transitDetail: cached.transitDetail || null,
             longDistance:  cached.longDistance || false,
             streetNames: null, hasToll: false,
+            loading: false,
           };
         }
 
-        // 캐시 없음 → 직선 placeholder
+        // 캐시 없음 → 직선 placeholder (로딩 중)
         return {
           positions: [[from.lat, from.lng], [to.lat, to.lng]],
           style, transport, from: from.name, to: to.name,
           isRoadRoute: false, time: null, distance: null,
           transitDetail: null, longDistance: false, streetNames: null, hasToll: false, trainInfo: null,
+          loading: true,
         };
       });
 
@@ -521,6 +524,7 @@ const Map = ({ places, onRouteUpdate, mapContainerRef, onSegmentClick, selectedS
           isRoadRoute: isRealRoute,
           time: segTime, distance: segDistance,
           transitDetail, streetNames, hasToll, longDistance, longDistanceFallback, trainInfo,
+          loading: false,
         };
 
         setRouteSegments([...segments]);
@@ -660,25 +664,35 @@ const Map = ({ places, onRouteUpdate, mapContainerRef, onSegmentClick, selectedS
         </button>
       )}
 
-      {/* 범례 (subway·taxi 중복 제거) */}
+      {/* 범례 토글 버튼 + 패널 (subway·taxi 중복 제거) */}
       {places.length >= 2 && (
-        <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 shadow-md z-[1000] text-xs">
-          <div className="font-semibold text-gray-700 mb-1">이동수단</div>
-          {Object.entries(TRANSPORT_STYLES)
-            .filter(([key]) => !['subway', 'taxi'].includes(key))
-            .map(([key, style]) => (
-              <div key={key} className="flex items-center gap-2 py-0.5">
-                <svg width="28" height="6" className="flex-shrink-0">
-                  <line x1="0" y1="3" x2="28" y2="3"
-                    stroke={style.color}
-                    strokeWidth={style.weight > 5 ? 3 : style.weight > 3 ? 2.5 : 2}
-                    strokeDasharray={style.dashArray ? style.dashArray.split(',').map(v => parseFloat(v) * 0.6).join(',') : undefined}
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <span className="text-gray-600">{style.label}</span>
-              </div>
-            ))}
+        <div className="absolute bottom-4 left-4 z-[1000]">
+          <button
+            onClick={() => setLegendOpen(v => !v)}
+            className="flex items-center gap-1.5 bg-white/90 backdrop-blur-sm rounded-lg px-2.5 py-1.5 shadow-md text-xs font-medium text-gray-600 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+          >
+            <span>이동수단</span>
+            <span className="text-gray-400">{legendOpen ? '▲' : '▼'}</span>
+          </button>
+          {legendOpen && (
+            <div className="mt-1 bg-white/90 backdrop-blur-sm rounded-lg px-3 py-2 shadow-md text-xs">
+              {Object.entries(TRANSPORT_STYLES)
+                .filter(([key]) => !['subway', 'taxi'].includes(key))
+                .map(([key, style]) => (
+                  <div key={key} className="flex items-center gap-2 py-0.5">
+                    <svg width="28" height="6" className="flex-shrink-0">
+                      <line x1="0" y1="3" x2="28" y2="3"
+                        stroke={style.color}
+                        strokeWidth={style.weight > 5 ? 3 : style.weight > 3 ? 2.5 : 2}
+                        strokeDasharray={style.dashArray ? style.dashArray.split(',').map(v => parseFloat(v) * 0.6).join(',') : undefined}
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <span className="text-gray-600">{style.label}</span>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       )}
     </div>

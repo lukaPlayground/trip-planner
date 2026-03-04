@@ -279,6 +279,9 @@ const SegmentCard = ({
 
         {/* 소요시간 · 거리 · 환승정보 */}
         <div className="flex items-center gap-2 flex-wrap">
+          {seg?.loading && !segTimeStr && (
+            <span className="text-xs text-gray-400 animate-pulse">경로 검색 중...</span>
+          )}
           {segTimeStr && (
             <span className="text-xs font-semibold" style={{ color: transportColor }}>{segTimeStr}</span>
           )}

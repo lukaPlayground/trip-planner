@@ -4,11 +4,12 @@ import { AuthContext } from '../context/AuthContext';
 import Map from '../components/Map';
 import PlaceList from '../components/PlaceList';
 import SearchBar from '../components/SearchBar';
+import TutorialModal, { STORAGE_KEY as TUTORIAL_KEY } from '../components/TutorialModal';
 import api from '../api/axios';
 import { useExport } from '../components/ExportButton';
 import {
   FaPlus, FaSave, FaSignOutAlt, FaTrash, FaChevronDown,
-  FaShareAlt, FaLink, FaCopy, FaFilePdf, FaCheck, FaBars,
+  FaShareAlt, FaLink, FaCopy, FaFilePdf, FaCheck, FaBars, FaQuestionCircle,
 } from 'react-icons/fa';
 
 const Dashboard = () => {
@@ -28,6 +29,10 @@ const Dashboard = () => {
   const [shareToast, setShareToast] = useState('');
   const [mobileTab, setMobileTab] = useState('map'); // 'map' | 'list'
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(() => {
+    // 게스트가 아닌 경우(로그인 사용자) 첫 접속 시 표시
+    return localStorage.getItem(TUTORIAL_KEY) !== 'true';
+  });
 
   // 지도 컨테이너 ref (캡처용)
   const mapContainerRef = useRef(null);
@@ -383,6 +388,14 @@ const Dashboard = () => {
             )}
 
             <button
+              onClick={() => setShowTutorial(true)}
+              className="flex items-center px-2 py-1.5 bg-blue-700 rounded-lg hover:bg-blue-800 text-xs transition-colors"
+              title="사용 안내"
+            >
+              <FaQuestionCircle size={11} />
+            </button>
+
+            <button
               onClick={handleLogout}
               className="flex items-center px-2 py-1.5 bg-blue-700 rounded-lg hover:bg-blue-800 text-xs transition-colors"
               title="로그아웃"
@@ -391,8 +404,20 @@ const Dashboard = () => {
             </button>
           </div>
 
-          {/* ── 모바일 햄버거 (sm 미만) ── */}
-          <div className="relative sm:hidden">
+          {/* ── 모바일: 저장 버튼 + 햄버거 (sm 미만) ── */}
+          <div className="flex items-center gap-1.5 sm:hidden">
+            {/* 저장 버튼 - 항상 표시 */}
+            <button
+              onClick={savePlan}
+              disabled={!currentPlan || saving}
+              className="flex items-center gap-1 px-2 py-1.5 bg-green-500 rounded-lg hover:bg-green-600 disabled:opacity-50 text-xs font-medium transition-colors"
+              title="저장"
+            >
+              <FaSave size={11} />
+              <span>{saving ? '저장 중' : '저장'}</span>
+            </button>
+
+          <div className="relative">
             <button
               onClick={(e) => { e.stopPropagation(); setShowMobileMenu(!showMobileMenu); setShowPlanList(false); }}
               className="flex items-center px-2 py-1.5 bg-blue-700 rounded-lg hover:bg-blue-800 transition-colors"
@@ -457,6 +482,12 @@ const Dashboard = () => {
 
                 <div className="border-t border-gray-100" />
                 <button
+                  onClick={() => { setShowTutorial(true); setShowMobileMenu(false); }}
+                  className="flex items-center gap-2.5 w-full px-4 py-2.5 hover:bg-gray-50 text-sm transition-colors"
+                >
+                  <FaQuestionCircle size={12} className="text-blue-400" /><span>사용 안내</span>
+                </button>
+                <button
                   onClick={handleLogout}
                   className="flex items-center gap-2.5 w-full px-4 py-2.5 hover:bg-red-50 text-sm transition-colors text-red-500"
                 >
@@ -464,6 +495,7 @@ const Dashboard = () => {
                 </button>
               </div>
             )}
+          </div>
           </div>
 
         </div>
@@ -604,6 +636,11 @@ const Dashboard = () => {
           )}
         </div>
       </div>
+
+      {/* 튜토리얼 팝업 */}
+      {showTutorial && (
+        <TutorialModal onClose={() => setShowTutorial(false)} />
+      )}
     </div>
   );
 };
