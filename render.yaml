@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: trip-planner-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node src/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: ODSAY_API_KEY
+        sync: false
+      - key: ITS_API_KEY
+        sync: false
